@@ -1,0 +1,2401 @@
+<!doctype html>
+<html lang="es" data-paleta="primaria-azul-oro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Álbum Digital de Promoción Escolar 2026</title>
+    <meta
+      name="description"
+      content="Álbum y tarjeta digital interactiva de promoción escolar, optimizada para abrirse desde el celular por WhatsApp."
+    />
+    <meta property="og:title" content="Álbum Digital de Promoción Escolar 2026" />
+    <meta
+      property="og:description"
+      content="Recuerdos, fotografías, videos, anuario y dedicatorias de nuestra promoción escolar 2026."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Configuración PWA (Android e iOS en modo pantalla completa standalone) -->
+    <meta name="theme-color" id="meta-theme-color" content="#183a6e" />
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" id="meta-apple-title" content="Álbum 2026" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+
+    <!-- Tipografías editoriales y legibles (con respaldo local del sistema) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* =========================================================================
+         1. SISTEMA DE TEMAS Y VARIABLES CSS (CONTROLADO POR CONFIG.paleta)
+         ========================================================================= */
+      :root,
+      html[data-paleta="primaria-azul-oro"] {
+        --bg-canvas: #f7f9fc;
+        --bg-surface: #ffffff;
+        --bg-subtle: #edf2f8;
+        --text-primary: #142136;
+        --text-secondary: #4a5970;
+        --text-muted: #6b7a90;
+        --accent: #183a6e;
+        --accent-hover: #102a52;
+        --accent-contrast: #ffffff;
+        --accent-secondary: #b47b1b;
+        --accent-tint: rgba(24, 58, 110, 0.08);
+        --border-hairline: rgba(20, 33, 54, 0.1);
+        --shadow-card: 0 6px 24px rgba(16, 42, 82, 0.06);
+        --shadow-modal: 0 24px 60px rgba(10, 22, 42, 0.35);
+        --whatsapp-bg: #16794c;
+        --whatsapp-hover: #11613d;
+        --hero-overlay: linear-gradient(180deg, rgba(16, 36, 68, 0.05) 0%, rgba(16, 36, 68, 0.45) 100%);
+      }
+
+      html[data-paleta="inicial-pastel"] {
+        --bg-canvas: #fcf9f5;
+        --bg-surface: #ffffff;
+        --bg-subtle: #f3ece4;
+        --text-primary: #2d2522;
+        --text-secondary: #5d514b;
+        --text-muted: #7b6e67;
+        --accent: #b8583e;
+        --accent-hover: #9a452f;
+        --accent-contrast: #ffffff;
+        --accent-secondary: #5b7f6b;
+        --accent-tint: rgba(184, 88, 62, 0.09);
+        --border-hairline: rgba(45, 37, 34, 0.1);
+        --shadow-card: 0 6px 24px rgba(90, 62, 46, 0.06);
+        --shadow-modal: 0 24px 60px rgba(34, 24, 18, 0.35);
+        --whatsapp-bg: #1a7a4f;
+        --whatsapp-hover: #14623f;
+        --hero-overlay: linear-gradient(180deg, rgba(45, 37, 34, 0.04) 0%, rgba(45, 37, 34, 0.38) 100%);
+      }
+
+      html[data-paleta="secundaria-elegante"] {
+        --bg-canvas: #f6f5f0;
+        --bg-surface: #ffffff;
+        --bg-subtle: #eae7de;
+        --text-primary: #171c19;
+        --text-secondary: #48504b;
+        --text-muted: #66706a;
+        --accent: #1d352b;
+        --accent-hover: #12231c;
+        --accent-contrast: #ffffff;
+        --accent-secondary: #987636;
+        --accent-tint: rgba(29, 53, 43, 0.08);
+        --border-hairline: rgba(23, 28, 25, 0.11);
+        --shadow-card: 0 6px 24px rgba(18, 35, 28, 0.07);
+        --shadow-modal: 0 24px 60px rgba(10, 16, 13, 0.42);
+        --whatsapp-bg: #177549;
+        --whatsapp-hover: #115b38;
+        --hero-overlay: linear-gradient(180deg, rgba(18, 35, 28, 0.06) 0%, rgba(18, 35, 28, 0.48) 100%);
+      }
+
+      /* =========================================================================
+         2. BASE, TIPOGRAFÍA Y ACCESIBILIDAD
+         ========================================================================= */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background-color: var(--bg-canvas);
+        color: var(--text-primary);
+        line-height: 1.6;
+        font-size: 16px;
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+      }
+
+      @media (min-width: 768px) {
+        body {
+          padding-bottom: 0;
+        }
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      button,
+      a {
+        font-family: inherit;
+      }
+
+      :focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      .tabular-nums {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 1140px;
+        margin-inline: auto;
+        padding-inline: 16px;
+      }
+
+      @media (min-width: 768px) {
+        .container {
+          padding-inline: 28px;
+        }
+      }
+
+      /* =========================================================================
+         3. BARRA SUPERIOR (3 ZONAS: COLEGIO · SECCIONES · COMPARTIR WHATSAPP)
+         ========================================================================= */
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        background: color-mix(in srgb, var(--bg-canvas) 90%, transparent);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--border-hairline);
+      }
+
+      @media (display-mode: standalone) {
+        .topbar {
+          padding-top: env(safe-area-inset-top, 0px);
+        }
+      }
+
+      .topbar-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        height: 48px;
+      }
+
+      @media (min-width: 768px) {
+        .topbar-inner {
+          gap: 32px;
+          height: 64px;
+        }
+      }
+
+      .brand-wordmark {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        text-decoration: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+        letter-spacing: -0.01em;
+      }
+
+      @media (min-width: 768px) {
+        .brand-wordmark {
+          font-size: 1.35rem;
+          flex-shrink: 0;
+        }
+      }
+
+      .desktop-nav {
+        display: none;
+      }
+
+      @media (min-width: 768px) {
+        .desktop-nav {
+          display: flex;
+          align-items: center;
+          gap: 24px;
+        }
+      }
+
+      .desktop-nav-btn {
+        background: none;
+        border: none;
+        padding: 10px 4px;
+        min-height: 44px;
+        font-size: 0.92rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+        position: relative;
+        transition: color 180ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .desktop-nav-btn:hover {
+        color: var(--text-primary);
+      }
+
+      .desktop-nav-btn[aria-selected="true"] {
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      .desktop-nav-btn[aria-selected="true"]::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 6px;
+        height: 2px;
+        background-color: var(--accent-secondary);
+        border-radius: 2px;
+      }
+
+      .btn-whatsapp-top {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 36px;
+        padding: 7px 14px;
+        border-radius: 10px;
+        background-color: var(--whatsapp-bg);
+        color: #ffffff;
+        font-size: 0.82rem;
+        font-weight: 600;
+        text-decoration: none;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      @media (min-width: 768px) {
+        .btn-whatsapp-top {
+          min-height: 40px;
+          padding: 8px 16px;
+          font-size: 0.875rem;
+        }
+      }
+
+      .btn-whatsapp-top:hover {
+        background-color: var(--whatsapp-hover);
+      }
+
+      .btn-whatsapp-top:active {
+        transform: scale(0.98);
+      }
+
+      /* =========================================================================
+         4. PORTADA / HERO EDITORIAL
+         ========================================================================= */
+      .hero {
+        padding-top: 24px;
+        padding-bottom: 24px;
+      }
+
+      @media (min-width: 1024px) {
+        .hero {
+          padding-top: 40px;
+          padding-bottom: 36px;
+        }
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 24px;
+        align-items: stretch;
+      }
+
+      @media (min-width: 1024px) {
+        .hero-grid {
+          grid-template-columns: 1.05fr 1fr;
+          gap: 40px;
+        }
+      }
+
+      .hero-copy {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 16px;
+      }
+
+      .hero-kicker {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--accent-secondary);
+        letter-spacing: 0.01em;
+      }
+
+      .hero-title {
+        margin: 0;
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: clamp(2.15rem, 5vw, 3.4rem);
+        font-weight: 700;
+        line-height: 1.08;
+        letter-spacing: -0.02em;
+        color: var(--text-primary);
+        text-wrap: balance;
+      }
+
+      .hero-subtitle {
+        margin: 0;
+        font-size: 1rem;
+        color: var(--text-secondary);
+        max-width: 52ch;
+        line-height: 1.65;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin-top: 4px;
+      }
+
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 46px;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 12px;
+        background-color: var(--accent);
+        color: var(--accent-contrast);
+        font-size: 0.95rem;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .btn-primary:hover {
+        background-color: var(--accent-hover);
+      }
+
+      .btn-primary:active {
+        transform: scale(0.98);
+      }
+
+      .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 46px;
+        padding: 11px 18px;
+        border-radius: 12px;
+        border: 1px solid var(--border-hairline);
+        background-color: var(--bg-surface);
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: background-color 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease;
+      }
+
+      .btn-secondary:hover {
+        background-color: var(--bg-subtle);
+      }
+
+      .btn-secondary[aria-pressed="true"] {
+        border-color: var(--accent-secondary);
+        background-color: var(--accent-tint);
+        color: var(--accent);
+      }
+
+      .hero-media {
+        position: relative;
+        border-radius: 20px;
+        overflow: hidden;
+        background-color: var(--bg-subtle);
+        box-shadow: var(--shadow-card);
+        aspect-ratio: 16 / 10;
+      }
+
+      @media (min-width: 1024px) {
+        .hero-media {
+          aspect-ratio: auto;
+          min-height: 360px;
+          height: 100%;
+        }
+      }
+
+      .hero-media img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .hero-media-scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--hero-overlay);
+        pointer-events: none;
+      }
+
+      .hero-media-caption {
+        position: absolute;
+        left: 18px;
+        right: 18px;
+        bottom: 16px;
+        color: #ffffff;
+        font-size: 0.85rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .stats-strip {
+        margin-top: 24px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border-hairline);
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+      }
+
+      @media (min-width: 768px) {
+        .stats-strip {
+          margin-top: 32px;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 24px;
+        }
+      }
+
+      .stat-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .stat-value {
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: 1.75rem;
+        font-weight: 700;
+        line-height: 1.1;
+        color: var(--text-primary);
+      }
+
+      .stat-label {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+      }
+
+      /* =========================================================================
+         5. NAVEGACIÓN DE SECCIONES Y FILTROS
+         ========================================================================= */
+      .album-workspace {
+        padding-top: 16px;
+        padding-bottom: 56px;
+      }
+
+      .section-heading-group {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 18px;
+      }
+
+      @media (min-width: 768px) {
+        .section-heading-group {
+          margin-bottom: 0;
+        }
+      }
+
+      .section-title {
+        margin: 0;
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: clamp(1.6rem, 3vw, 2.2rem);
+        font-weight: 700;
+        line-height: 1.15;
+        color: var(--text-primary);
+      }
+
+      .section-lead {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+      }
+
+      .segmented-control {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 4px;
+        background-color: var(--bg-subtle);
+        border-radius: 12px;
+        max-width: 100%;
+      }
+
+      .segmented-btn {
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        font-weight: 600;
+        padding: 9px 14px;
+        min-height: 40px;
+        border-radius: 9px;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+      }
+
+      .segmented-btn:hover {
+        color: var(--text-primary);
+      }
+
+      .segmented-btn[aria-pressed="true"],
+      .segmented-btn[aria-selected="true"] {
+        background-color: var(--bg-surface);
+        color: var(--accent);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      }
+
+      .tab-panel {
+        display: none;
+        animation: panelFadeIn 200ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .tab-panel.is-active {
+        display: block;
+      }
+
+      @keyframes panelFadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* =========================================================================
+         6. SECCIÓN FOTOS (GALERÍA + LIGHTBOX)
+         ========================================================================= */
+      .gallery-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 20px;
+      }
+
+      .gallery-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 18px;
+      }
+
+      @media (min-width: 600px) {
+        .gallery-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .gallery-grid {
+          grid-template-columns: repeat(3, 1fr);
+          gap: 22px;
+        }
+      }
+
+      .photo-card {
+        background-color: var(--bg-surface);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: var(--shadow-card);
+        display: flex;
+        flex-direction: column;
+        transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .photo-card:hover {
+        transform: translateY(-2px);
+      }
+
+      .photo-trigger {
+        position: relative;
+        display: block;
+        width: 100%;
+        padding: 0;
+        border: none;
+        background: var(--bg-subtle);
+        aspect-ratio: 4 / 3;
+        overflow: hidden;
+        cursor: pointer;
+      }
+
+      .photo-trigger img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .photo-card:hover .photo-trigger img {
+        transform: scale(1.03);
+      }
+
+      .photo-zoom-hint {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        background: rgba(15, 23, 42, 0.65);
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+      }
+
+      .photo-body {
+        padding: 16px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .photo-title {
+        margin: 0 0 4px 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        line-height: 1.35;
+      }
+
+      .photo-meta {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+      }
+
+      .icon-action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        min-height: 44px;
+        border-radius: 10px;
+        border: 1px solid var(--border-hairline);
+        background: var(--bg-surface);
+        color: var(--text-primary);
+        text-decoration: none;
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: background-color 160ms ease, color 160ms ease;
+      }
+
+      .icon-action-btn:hover {
+        background-color: var(--bg-subtle);
+        color: var(--accent);
+      }
+
+      /* =========================================================================
+         7. SECCIÓN VIDEOS
+         ========================================================================= */
+      .videos-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+
+      @media (min-width: 768px) {
+        .videos-grid {
+          grid-template-columns: repeat(2, 1fr);
+          gap: 24px;
+        }
+      }
+
+      .video-card {
+        background-color: var(--bg-surface);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: var(--shadow-card);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .video-poster {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: var(--bg-subtle);
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        overflow: hidden;
+      }
+
+      .video-poster img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .video-poster-scrim {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.34);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 180ms ease;
+      }
+
+      .video-card:hover .video-poster-scrim {
+        background: rgba(15, 23, 42, 0.48);
+      }
+
+      .play-circle {
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        background-color: rgba(255, 255, 255, 0.94);
+        color: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+        transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .video-card:hover .play-circle {
+        transform: scale(1.06);
+      }
+
+      .video-body {
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        flex: 1;
+      }
+
+      .video-meta {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+      }
+
+      .video-title {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1.3;
+      }
+
+      .video-desc {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        flex: 1;
+      }
+
+      .video-footer {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      /* =========================================================================
+         8. SECCIÓN ANUARIO / EGRESADOS
+         ========================================================================= */
+      .anuario-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 14px;
+      }
+
+      @media (min-width: 768px) {
+        .anuario-grid {
+          grid-template-columns: repeat(3, 1fr);
+          gap: 22px;
+        }
+      }
+
+      .student-card {
+        background-color: var(--bg-surface);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: var(--shadow-card);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 12px;
+        border: none;
+        cursor: pointer;
+        width: 100%;
+        transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      @media (min-width: 768px) {
+        .student-card {
+          padding: 22px;
+        }
+      }
+
+      .student-card:hover {
+        transform: translateY(-2px);
+      }
+
+      .student-avatar-wrap {
+        width: 96px;
+        height: 96px;
+        border-radius: 50%;
+        overflow: hidden;
+        background-color: var(--bg-subtle);
+        flex-shrink: 0;
+      }
+
+      @media (min-width: 768px) {
+        .student-avatar-wrap {
+          width: 112px;
+          height: 112px;
+        }
+      }
+
+      .student-avatar-wrap img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .student-name {
+        margin: 0;
+        font-size: 0.98rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1.3;
+      }
+
+      .student-quote {
+        margin: 0;
+        font-size: 0.84rem;
+        color: var(--text-secondary);
+        line-height: 1.5;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .student-promo-card {
+        background-color: var(--bg-subtle);
+        border-radius: 18px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        gap: 10px;
+      }
+
+      .student-promo-thumb {
+        width: 96px;
+        height: 96px;
+        border-radius: 14px;
+        overflow: hidden;
+        background-color: var(--bg-surface);
+      }
+
+      .student-promo-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      /* =========================================================================
+         9. SECCIÓN DEDICATORIA DE LA TUTORA
+         ========================================================================= */
+      .letter-card {
+        background-color: var(--bg-surface);
+        border-radius: 22px;
+        padding: 24px;
+        box-shadow: var(--shadow-card);
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 24px;
+        align-items: start;
+      }
+
+      @media (min-width: 768px) {
+        .letter-card {
+          grid-template-columns: 240px 1fr;
+          padding: 36px;
+          gap: 36px;
+        }
+      }
+
+      .tutora-profile {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 16px;
+      }
+
+      @media (min-width: 768px) {
+        .tutora-profile {
+          flex-direction: column;
+          text-align: center;
+        }
+      }
+
+      .tutora-photo {
+        width: 84px;
+        height: 84px;
+        border-radius: 18px;
+        overflow: hidden;
+        background-color: var(--bg-subtle);
+        flex-shrink: 0;
+      }
+
+      @media (min-width: 768px) {
+        .tutora-photo {
+          width: 180px;
+          height: 180px;
+          border-radius: 20px;
+        }
+      }
+
+      .tutora-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .tutora-name {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+
+      .tutora-role {
+        margin: 2px 0 0 0;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      .letter-content {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .letter-title {
+        margin: 0;
+        font-family: "Cormorant Garamond", Georgia, serif;
+        font-size: clamp(1.6rem, 3vw, 2.25rem);
+        font-weight: 700;
+        line-height: 1.18;
+        color: var(--text-primary);
+      }
+
+      .letter-body p {
+        margin: 0 0 12px 0;
+        font-size: 0.98rem;
+        line-height: 1.75;
+        color: var(--text-secondary);
+        max-width: 68ch;
+      }
+
+      .letter-body p:last-child {
+        margin-bottom: 0;
+      }
+
+      .letter-signature {
+        margin-top: 8px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border-hairline);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      /* =========================================================================
+         10. NAVEGACIÓN INFERIOR MÓVIL (ZONA DE PULGAR)
+         ========================================================================= */
+      .mobile-bottom-nav {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 40;
+        background: color-mix(in srgb, var(--bg-surface) 94%, transparent);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-top: 1px solid var(--border-hairline);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        height: calc(54px + env(safe-area-inset-bottom, 0px));
+      }
+
+      @media (min-width: 768px) {
+        .mobile-bottom-nav {
+          display: none;
+        }
+      }
+
+      .mobile-tab-btn {
+        background: none;
+        border: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        min-height: 44px;
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 4px;
+        white-space: nowrap;
+        transition: color 150ms ease;
+      }
+
+      .mobile-tab-btn[aria-selected="true"] {
+        color: var(--accent);
+      }
+
+      /* =========================================================================
+         11. MODALES (LIGHTBOX DE FOTOS, VIDEO PLAYER, DETALLE EGRESADO)
+         ========================================================================= */
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        background: rgba(10, 15, 26, 0.84);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+      }
+
+      .modal-backdrop.is-open {
+        display: flex;
+        animation: modalFadeIn 180ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      @keyframes modalFadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      .modal-dialog {
+        width: 100%;
+        max-width: 880px;
+        max-height: 92vh;
+        background-color: var(--bg-surface);
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: var(--shadow-modal);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-hairline);
+      }
+
+      .modal-title {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .modal-close-btn {
+        min-width: 44px;
+        min-height: 44px;
+        border-radius: 10px;
+        border: 1px solid var(--border-hairline);
+        background: var(--bg-surface);
+        color: var(--text-primary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .modal-close-btn:hover {
+        background: var(--bg-subtle);
+      }
+
+      .lightbox-stage {
+        position: relative;
+        background: #0d1117;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 260px;
+        max-height: 62vh;
+        overflow: hidden;
+      }
+
+      .lightbox-stage img {
+        max-width: 100%;
+        max-height: 62vh;
+        object-fit: contain;
+      }
+
+      .lightbox-nav-btn {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        border: none;
+        background: rgba(255, 255, 255, 0.9);
+        color: #142136;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+      }
+
+      .lightbox-nav-btn.prev {
+        left: 12px;
+      }
+
+      .lightbox-nav-btn.next {
+        right: 12px;
+      }
+
+      .modal-footer {
+        padding: 14px 16px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .video-stage {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #0b0f17;
+        overflow: hidden;
+      }
+
+      .video-stage iframe,
+      .video-stage video {
+        width: 100%;
+        height: 100%;
+        border: 0;
+      }
+
+      .reel-player {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        overflow: hidden;
+      }
+
+      .reel-slide-img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: opacity 450ms ease;
+      }
+
+      .reel-scrim {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(10, 15, 26, 0.1) 0%, rgba(10, 15, 26, 0.78) 100%);
+      }
+
+      .reel-caption {
+        position: relative;
+        z-index: 2;
+        padding: 18px;
+        color: #ffffff;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      /* =========================================================================
+         12. RESILIENCIA DE IMÁGENES Y PIE DE PÁGINA
+         ========================================================================= */
+      .img-fallback {
+        display: none;
+        width: 100%;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 8px;
+        padding: 16px;
+        text-align: center;
+        background: linear-gradient(135deg, var(--bg-subtle), var(--bg-canvas));
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+
+      .img-broken .img-fallback {
+        display: flex;
+      }
+
+      .img-broken img {
+        display: none;
+      }
+
+      .site-footer {
+        border-top: 1px solid var(--border-hairline);
+        padding: 28px 0;
+        margin-top: 24px;
+      }
+
+      .footer-inner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .footer-text {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- BARRA SUPERIOR -->
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a href="#inicio" class="brand-wordmark" id="brand-colegio">Colegio</a>
+
+        <nav class="desktop-nav" aria-label="Secciones del álbum">
+          <button type="button" class="desktop-nav-btn" data-tab="fotos" aria-selected="true">Fotos</button>
+          <button type="button" class="desktop-nav-btn" data-tab="videos" aria-selected="false">Videos</button>
+          <button type="button" class="desktop-nav-btn" data-tab="anuario" aria-selected="false">Anuario</button>
+          <button type="button" class="desktop-nav-btn" data-tab="dedicatoria" aria-selected="false">Dedicatoria</button>
+        </nav>
+
+        <a
+          id="btn-whatsapp-top"
+          class="btn-whatsapp-top"
+          href="https://wa.me/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Compartir álbum por WhatsApp"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+          </svg>
+          <span>Compartir</span>
+        </a>
+      </div>
+    </header>
+
+    <main id="inicio">
+      <!-- PORTADA / HERO PRINCIPAL -->
+      <section class="hero" aria-labelledby="hero-titulo">
+        <div class="container">
+          <div class="hero-grid">
+            <div class="hero-copy">
+              <div class="hero-kicker" id="hero-kicker">Primaria · Promoción 2025</div>
+              <h1 class="hero-title" id="hero-titulo">Promoción 2025</h1>
+              <p class="hero-subtitle" id="hero-subtitulo">
+                Recuerdos digitales de nuestra etapa escolar, listos para disfrutar en familia.
+              </p>
+
+              <div class="hero-actions">
+                <button type="button" class="btn-primary" id="btn-entrar-album">
+                  <span>Ver recuerdos</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 5v14" />
+                    <path d="m19 12-7 7-7-7" />
+                  </svg>
+                </button>
+
+                <button type="button" class="btn-secondary" id="btn-musica" aria-pressed="false">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
+                  <span id="label-musica">Escuchar música</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="hero-media" id="hero-media-box">
+              <img id="hero-img" src="" alt="Fotografía principal de la promoción" referrerpolicy="no-referrer" />
+              <div class="img-fallback">
+                <span>Álbum de Promoción</span>
+              </div>
+              <div class="hero-media-scrim" aria-hidden="true"></div>
+              <div class="hero-media-caption">
+                <span id="hero-caption-colegio">Colegio</span>
+                <span class="tabular-nums" id="hero-caption-anio">2025</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="stats-strip" aria-label="Resumen del álbum">
+            <div class="stat-item">
+              <span class="stat-value tabular-nums" id="stat-fotos">0</span>
+              <span class="stat-label">Fotografías del año</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value tabular-nums" id="stat-videos">0</span>
+              <span class="stat-label">Videos conmemorativos</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value tabular-nums" id="stat-alumnos">0</span>
+              <span class="stat-label">Egresados en anuario</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value tabular-nums" id="stat-anio">2025</span>
+              <span class="stat-label">Edición digital</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CONTENIDO PRINCIPAL POR PESTAÑAS -->
+      <section class="album-workspace" id="album-panel" aria-label="Contenido del álbum">
+        <div class="container">
+          <!-- Pestaña 1: FOTOS -->
+          <div id="panel-fotos" class="tab-panel is-active" role="tabpanel" aria-label="Fotos">
+            <div class="gallery-toolbar">
+              <div class="section-heading-group">
+                <h2 class="section-title">Galería de recuerdos</h2>
+                <p class="section-lead">Toca cualquier fotografía para ampliarla o guardarla en tu celular.</p>
+              </div>
+              <div class="segmented-control" id="fotos-filtros" role="group" aria-label="Filtrar fotografías por categoría"></div>
+            </div>
+
+            <div class="gallery-grid" id="fotos-grid"></div>
+          </div>
+
+          <!-- Pestaña 2: VIDEOS -->
+          <div id="panel-videos" class="tab-panel" role="tabpanel" aria-label="Videos">
+            <div class="section-heading-group" style="margin-bottom: 20px;">
+              <h2 class="section-title">Videos de la promoción</h2>
+              <p class="section-lead">Momentos destacados de la ceremonia, despedida y resumen escolar.</p>
+            </div>
+
+            <div class="videos-grid" id="videos-grid"></div>
+          </div>
+
+          <!-- Pestaña 3: ANUARIO -->
+          <div id="panel-anuario" class="tab-panel" role="tabpanel" aria-label="Anuario">
+            <div class="section-heading-group" style="margin-bottom: 20px;">
+              <h2 class="section-title">Anuario de egresados</h2>
+              <p class="section-lead">Cada integrante de la promoción con su recuerdo y mensaje especial.</p>
+            </div>
+
+            <div class="anuario-grid" id="anuario-grid"></div>
+          </div>
+
+          <!-- Pestaña 4: DEDICATORIA -->
+          <div id="panel-dedicatoria" class="tab-panel" role="tabpanel" aria-label="Dedicatoria">
+            <div class="section-heading-group" style="margin-bottom: 20px;">
+              <h2 class="section-title">Palabras de despedida</h2>
+              <p class="section-lead">Mensaje especial para nuestros estudiantes y sus familias.</p>
+            </div>
+
+            <article class="letter-card" id="dedicatoria-card"></article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- PIE DE PÁGINA CON ACCIÓN DIRECTA DE WHATSAPP -->
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <p class="footer-text" id="footer-copy">Álbum Digital de Promoción · 2025</p>
+        <a
+          id="btn-whatsapp-footer"
+          class="btn-whatsapp-top"
+          href="https://wa.me/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+          </svg>
+          <span>Compartir por WhatsApp</span>
+        </a>
+      </div>
+    </footer>
+
+    <!-- BARRA DE PESTAÑAS MÓVIL -->
+    <nav class="mobile-bottom-nav" aria-label="Navegación móvil">
+      <button type="button" class="mobile-tab-btn" data-tab="fotos" aria-selected="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+          <circle cx="9" cy="9" r="2" />
+          <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+        </svg>
+        <span>Fotos</span>
+      </button>
+      <button type="button" class="mobile-tab-btn" data-tab="videos" aria-selected="false">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="6 3 20 12 6 21 6 3" />
+        </svg>
+        <span>Videos</span>
+      </button>
+      <button type="button" class="mobile-tab-btn" data-tab="anuario" aria-selected="false">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+        <span>Anuario</span>
+      </button>
+      <button type="button" class="mobile-tab-btn" data-tab="dedicatoria" aria-selected="false">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+        </svg>
+        <span>Dedicatoria</span>
+      </button>
+    </nav>
+
+    <!-- MODAL LIGHTBOX PARA FOTOS -->
+    <div id="lightbox-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="lightbox-title">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title" id="lightbox-title">Foto</h3>
+          <button type="button" class="modal-close-btn" id="lightbox-close" aria-label="Cerrar vista ampliada">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="lightbox-stage">
+          <img id="lightbox-img" src="" alt="" referrerpolicy="no-referrer" />
+          <button type="button" class="lightbox-nav-btn prev" id="lightbox-prev" aria-label="Foto anterior">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+          </button>
+          <button type="button" class="lightbox-nav-btn next" id="lightbox-next" aria-label="Siguiente foto">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="modal-footer">
+          <span class="photo-meta" id="lightbox-meta">Categoría</span>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a id="lightbox-open" class="btn-secondary" href="#" target="_blank" rel="noopener noreferrer" style="min-height: 40px; padding: 8px 14px; font-size: 0.85rem;">
+              Abrir original
+            </a>
+            <a id="lightbox-download" class="btn-primary" href="#" download style="min-height: 40px; padding: 8px 16px; font-size: 0.85rem;">
+              Descargar foto
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL REPRODUCTOR DE VIDEO -->
+    <div id="video-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="video-modal-title">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title" id="video-modal-title">Video</h3>
+          <button type="button" class="modal-close-btn" id="video-modal-close" aria-label="Cerrar reproductor de video">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="video-stage" id="video-stage"></div>
+
+        <div class="modal-footer">
+          <span class="photo-meta" id="video-modal-meta">Duración</span>
+          <a id="video-modal-external" class="btn-secondary" href="#" target="_blank" rel="noopener noreferrer" style="min-height: 40px; padding: 8px 14px; font-size: 0.85rem;">
+            Abrir en nueva pestaña
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DETALLE DE EGRESADO (ANUARIO) -->
+    <div id="student-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="student-modal-name">
+      <div class="modal-dialog" style="max-width: 500px;">
+        <div class="modal-header">
+          <h3 class="modal-title" id="student-modal-name">Egresado</h3>
+          <button type="button" class="modal-close-btn" id="student-modal-close" aria-label="Cerrar ficha de egresado">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div style="padding: 24px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 16px;">
+          <div class="student-avatar-wrap" style="width: 140px; height: 140px;">
+            <img id="student-modal-img" src="" alt="" referrerpolicy="no-referrer" />
+            <div class="img-fallback"><span id="student-modal-initials">EG</span></div>
+          </div>
+          <p id="student-modal-promo" class="photo-meta" style="margin: 0;"></p>
+          <p id="student-modal-quote" style="margin: 0; font-size: 1rem; line-height: 1.65; color: var(--text-primary);"></p>
+        </div>
+
+        <div class="modal-footer" style="border-top: 1px solid var(--border-hairline);">
+          <button type="button" class="btn-secondary" id="student-prev" style="min-height: 40px; padding: 8px 14px;">Anterior</button>
+          <button type="button" class="btn-secondary" id="student-next" style="min-height: 40px; padding: 8px 14px;">Siguiente</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      /* =======================================================================
+         BLOQUE DE CONFIGURACIÓN CENTRALIZADO (EDITAR POR CADA CLIENTE)
+         ======================================================================= */
+      const CONFIG = {
+        // Nombre completo del colegio o institución educativa
+        colegio: "I.E.P. Santa María del Camino",
+
+        // Nombre oficial de la promoción
+        promocion: "Promoción 2026 - Pequeños Gigantes",
+
+        // Nivel educativo: "Inicial" | "Primaria" | "Secundaria"
+        nivel: "Primaria",
+
+        // Año lectivo de graduación
+        anio: "2026",
+
+        // Selector de paleta visual:
+        // "inicial-pastel" | "primaria-azul-oro" | "secundaria-elegante"
+        paleta: "primaria-azul-oro",
+
+        // Fotografía principal de la portada (Hero)
+        portadaUrl: "/src/assets/images/hero_promocion_1795554401911.jpg",
+
+        // Mensaje de despedida de la tutora o comité organizador
+        mensajeTutora: {
+          titulo: "Queridos pequeños gigantes, el mundo los espera",
+          nombre: "Prof. Gabriela Mendoza Ríos",
+          cargo: "Tutora de 6.º Grado de Primaria",
+          fotoUrl: "/src/assets/images/retrato_tutora_1795554405296.jpg",
+          texto:
+            "Hoy cerramos juntos una etapa llena de aprendizajes, cuadernos compartidos, risas en el recreo y sueños que recién comienzan a tomar vuelo.\n\nCada uno de ustedes dejó una huella imborrable en nuestra aula. Sigan caminando con curiosidad, respeto y alegría hacia la secundaria, sabiendo que siempre contarán con el cariño de sus familias y de su colegio.\n\nGracias a cada madre y padre de familia por confiar en nosotros y acompañar cada paso de este hermoso año."
+        },
+
+        // URL opcional de música MP3 instrumental (ej. "./audio/fondo.mp3").
+        // Si se deja vacío (""), el botón reproducirá una melodía instrumental suave generada en el navegador.
+        musicaUrl: "",
+
+        // Texto prearmado para el botón de compartir por WhatsApp
+        whatsappTexto:
+          "¡Ya está listo nuestro Álbum Digital de la Promoción 2026 - Pequeños Gigantes! Mira las fotos, videos y dedicatorias aquí:",
+
+        // Galería de fotografías: { titulo, categoria, url, descargaUrl }
+        fotos: [
+          {
+            titulo: "Ceremonia de clausura y entrega de diplomas",
+            categoria: "Ceremonia",
+            url: "/src/assets/images/foto_ceremonia_1795554404001.jpg",
+            descargaUrl: "/src/assets/images/foto_ceremonia_1795554404001.jpg"
+          },
+          {
+            titulo: "Taller de proyectos y arte en aula",
+            categoria: "Estudio",
+            url: "/src/assets/images/foto_estudio_1795554404647.jpg",
+            descargaUrl: "/src/assets/images/foto_estudio_1795554404647.jpg"
+          },
+          {
+            titulo: "Compartir de despedida en el patio",
+            categoria: "Compartir",
+            url: "/src/assets/images/foto_compartir_1795554405114.jpg",
+            descargaUrl: "/src/assets/images/foto_compartir_1795554405114.jpg"
+          },
+          {
+            titulo: "Birretes, anuario y recuerdos de promoción",
+            categoria: "Ceremonia",
+            url: "/src/assets/images/foto_birretes_1795554403590.jpg",
+            descargaUrl: "/src/assets/images/foto_birretes_1795554403590.jpg"
+          },
+          {
+            titulo: "Mesa de diplomas en el jardín central",
+            categoria: "Ceremonia",
+            url: "/src/assets/images/hero_promocion_1795554401911.jpg",
+            descargaUrl: "/src/assets/images/hero_promocion_1795554401911.jpg"
+          }
+        ],
+
+        // Videos conmemorativos: { titulo, duracion, descripcion, portadaUrl, embedUrl }
+        videos: [
+          {
+            titulo: "Resumen oficial: Ceremonia de Graduación 2026",
+            duracion: "03:45",
+            descripcion: "Ingreso de la promoción, entrega de diplomas y palabras de despedida en el auditorio.",
+            portadaUrl: "/src/assets/images/foto_ceremonia_1795554404001.jpg",
+            embedUrl: "https://youtu.be/5AM6ecA8zrk"
+          },
+          {
+            titulo: "Detrás de cámaras: Nuestro último año juntos",
+            duracion: "02:18",
+            descripcion: "Recopilación de trabajos en aula, recreos y el compartir final con todas las familias.",
+            portadaUrl: "/src/assets/images/foto_compartir_1795554405114.jpg",
+            embedUrl: "#demo-reel-recuerdos"
+          }
+        ],
+
+        // Anuario de egresados: { nombre, frase, fotoUrl }
+        alumnos: [
+          {
+            nombre: "Valeria Sofía Paredes",
+            frase: "Gracias por cada risa en clase y por enseñarnos que juntos todo es más divertido.",
+            fotoUrl: "/src/assets/images/alumno_1_1795554404726.jpg"
+          },
+          {
+            nombre: "Mateo Alejandro Quispe",
+            frase: "Me llevo a mis mejores amigos y los partidos inolvidables del recreo.",
+            fotoUrl: "/src/assets/images/alumno_2_1795554405944.jpg"
+          },
+          {
+            nombre: "Camila Fernanda Torres",
+            frase: "Siempre recordaré con cariño a mi tutora y cada proyecto que hicimos en equipo.",
+            fotoUrl: "/src/assets/images/alumno_3_1795554405267.jpg"
+          },
+          {
+            nombre: "Luciana Andrea Salazar",
+            frase: "Listos para la secundaria con el corazón lleno de gratitud y buenos recuerdos.",
+            fotoUrl: "/src/assets/images/alumno_5_1795554406115.jpg"
+          },
+          {
+            nombre: "Sebastián Nicolás Rojas",
+            frase: "Promoción 2026 para toda la vida. ¡Nos vemos en la siguiente aventura!",
+            fotoUrl: "/src/assets/images/alumno_6_1795554426713.jpg"
+          }
+        ]
+      };
+
+      /* =======================================================================
+         LÓGICA DE LA APLICACIÓN (VANILLA JAVASCRIPT)
+         ======================================================================= */
+      (function () {
+        "use strict";
+
+        const state = {
+          tabActiva: "fotos",
+          categoriaActiva: "Todas",
+          fotosFiltradas: [...CONFIG.fotos],
+          lightboxIndex: 0,
+          studentIndex: 0,
+          musicaActiva: false,
+          audioEl: null,
+          synthTimer: null,
+          audioCtx: null,
+          reelTimer: null
+        };
+
+        const activePaleta = CONFIG.paleta || "primaria-azul-oro";
+        document.documentElement.setAttribute("data-paleta", activePaleta);
+        document.title = `${CONFIG.promocion} · ${CONFIG.colegio}`;
+
+        const PALETA_THEME_COLORS = {
+          "inicial-pastel": "#b8583e",
+          "primaria-azul-oro": "#183a6e",
+          "secundaria-elegante": "#1d352b"
+        };
+        const metaThemeColor = document.getElementById("meta-theme-color");
+        if (metaThemeColor) {
+          metaThemeColor.setAttribute("content", PALETA_THEME_COLORS[activePaleta] || "#183a6e");
+        }
+        const metaAppleTitle = document.getElementById("meta-apple-title");
+        if (metaAppleTitle) {
+          metaAppleTitle.setAttribute("content", `Álbum ${CONFIG.anio || "2026"}`);
+        }
+
+        function buildWhatsAppUrl() {
+          const currentUrl = window.location.href;
+          const fullText = `${CONFIG.whatsappTexto} ${currentUrl}`;
+          return `https://wa.me/?text=${encodeURIComponent(fullText)}`;
+        }
+
+        function escapeHtml(str) {
+          return String(str || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+
+        function getInitials(name) {
+          return String(name || "PR")
+            .trim()
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((p) => p[0] || "")
+            .join("")
+            .toUpperCase();
+        }
+
+        function attachImageFallback(imgEl) {
+          if (!imgEl) return;
+          imgEl.addEventListener("error", () => {
+            if (imgEl.parentElement) {
+              imgEl.parentElement.classList.add("img-broken");
+            }
+          });
+          imgEl.addEventListener("load", () => {
+            if (imgEl.parentElement) {
+              imgEl.parentElement.classList.remove("img-broken");
+            }
+          });
+        }
+
+        function initHeaderAndHero() {
+          document.getElementById("brand-colegio").textContent = CONFIG.colegio;
+          document.getElementById("hero-kicker").textContent = `Nivel ${CONFIG.nivel} · Promoción ${CONFIG.anio}`;
+          document.getElementById("hero-titulo").textContent = CONFIG.promocion;
+          document.getElementById("hero-subtitulo").textContent = `${CONFIG.colegio} — Un espacio digital para revivir nuestras fotografías, videos y mensajes en familia.`;
+          document.getElementById("hero-caption-colegio").textContent = CONFIG.colegio;
+          document.getElementById("hero-caption-anio").textContent = CONFIG.anio;
+          document.getElementById("footer-copy").textContent = `${CONFIG.colegio} · ${CONFIG.promocion}`;
+
+          const heroImg = document.getElementById("hero-img");
+          heroImg.src = CONFIG.portadaUrl || (CONFIG.fotos[0] ? CONFIG.fotos[0].url : "");
+          heroImg.alt = `Portada de ${CONFIG.promocion}`;
+          attachImageFallback(heroImg);
+
+          document.getElementById("stat-fotos").textContent = String(CONFIG.fotos.length);
+          document.getElementById("stat-videos").textContent = String(CONFIG.videos.length);
+          document.getElementById("stat-alumnos").textContent = String(CONFIG.alumnos.length);
+          document.getElementById("stat-anio").textContent = CONFIG.anio;
+
+          const waUrl = buildWhatsAppUrl();
+          document.getElementById("btn-whatsapp-top").href = waUrl;
+          document.getElementById("btn-whatsapp-footer").href = waUrl;
+
+          document.getElementById("btn-entrar-album").addEventListener("click", () => {
+            switchTab("fotos");
+            const panel = document.getElementById("album-panel");
+            if (panel) {
+              panel.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          });
+        }
+
+        function switchTab(tabName) {
+          state.tabActiva = tabName;
+          document.querySelectorAll("[data-tab]").forEach((btn) => {
+            const isSelected = btn.getAttribute("data-tab") === tabName;
+            btn.setAttribute("aria-selected", String(isSelected));
+          });
+          document.querySelectorAll(".tab-panel").forEach((panel) => {
+            panel.classList.toggle("is-active", panel.id === `panel-${tabName}`);
+          });
+        }
+
+        function initTabs() {
+          document.querySelectorAll("[data-tab]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const target = btn.getAttribute("data-tab");
+              switchTab(target);
+              const panel = document.getElementById("album-panel");
+              if (panel && window.scrollY > panel.offsetTop) {
+                panel.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            });
+          });
+        }
+
+        function startGentleMelody() {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) return;
+
+          if (!state.audioCtx) {
+            state.audioCtx = new AudioContextClass();
+          }
+          if (state.audioCtx.state === "suspended") {
+            state.audioCtx.resume();
+          }
+
+          const notes = [261.63, 329.63, 392.0, 493.88, 440.0, 349.23, 392.0, 523.25];
+          let step = 0;
+
+          const playNote = () => {
+            if (!state.musicaActiva || !state.audioCtx) return;
+            const now = state.audioCtx.currentTime;
+            const osc = state.audioCtx.createOscillator();
+            const gain = state.audioCtx.createGain();
+
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(notes[step % notes.length], now);
+
+            gain.gain.setValueAtTime(0.0001, now);
+            gain.gain.exponentialRampToValueAtTime(0.055, now + 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
+
+            osc.connect(gain);
+            gain.connect(state.audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 1.55);
+
+            step += 1;
+          };
+
+          playNote();
+          state.synthTimer = window.setInterval(playNote, 900);
+        }
+
+        function stopMusic() {
+          if (state.audioEl) {
+            state.audioEl.pause();
+          }
+          if (state.synthTimer) {
+            clearInterval(state.synthTimer);
+            state.synthTimer = null;
+          }
+        }
+
+        function initMusicPlayer() {
+          const btn = document.getElementById("btn-musica");
+          const label = document.getElementById("label-musica");
+
+          btn.addEventListener("click", () => {
+            state.musicaActiva = !state.musicaActiva;
+            btn.setAttribute("aria-pressed", String(state.musicaActiva));
+            label.textContent = state.musicaActiva ? "Pausar música" : "Escuchar música";
+
+            if (state.musicaActiva) {
+              if (CONFIG.musicaUrl && CONFIG.musicaUrl.trim() !== "") {
+                if (!state.audioEl) {
+                  state.audioEl = new Audio(CONFIG.musicaUrl);
+                  state.audioEl.loop = true;
+                  state.audioEl.volume = 0.4;
+                }
+                state.audioEl.play().catch(() => {
+                  startGentleMelody();
+                });
+              } else {
+                startGentleMelody();
+              }
+            } else {
+              stopMusic();
+            }
+          });
+        }
+
+        function renderFotoFilters() {
+          const container = document.getElementById("fotos-filtros");
+          const categories = ["Todas", ...new Set(CONFIG.fotos.map((f) => f.categoria))];
+
+          container.innerHTML = categories
+            .map(
+              (cat) => `
+              <button
+                type="button"
+                class="segmented-btn"
+                data-categoria="${escapeHtml(cat)}"
+                aria-pressed="${cat === state.categoriaActiva ? "true" : "false"}"
+              >
+                ${escapeHtml(cat)}
+              </button>
+            `
+            )
+            .join("");
+
+          container.querySelectorAll(".segmented-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              state.categoriaActiva = btn.getAttribute("data-categoria");
+              renderFotoFilters();
+              renderFotosGrid();
+            });
+          });
+        }
+
+        function renderFotosGrid() {
+          const grid = document.getElementById("fotos-grid");
+          state.fotosFiltradas =
+            state.categoriaActiva === "Todas"
+              ? [...CONFIG.fotos]
+              : CONFIG.fotos.filter((f) => f.categoria === state.categoriaActiva);
+
+          if (state.fotosFiltradas.length === 0) {
+            grid.innerHTML = `<p class="photo-meta">No hay fotografías en esta categoría todavía.</p>`;
+            return;
+          }
+
+          grid.innerHTML = state.fotosFiltradas
+            .map(
+              (foto, idx) => `
+              <article class="photo-card">
+                <button
+                  type="button"
+                  class="photo-trigger"
+                  data-photo-index="${idx}"
+                  aria-label="Ampliar fotografía: ${escapeHtml(foto.titulo)}"
+                >
+                  <img src="${escapeHtml(foto.url)}" alt="${escapeHtml(foto.titulo)}" loading="lazy" referrerpolicy="no-referrer" />
+                  <div class="img-fallback"><span>${escapeHtml(foto.categoria)}</span></div>
+                  <span class="photo-zoom-hint" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M15 3h6v6" />
+                      <path d="M9 21H3v-6" />
+                      <path d="M21 3l-7 7" />
+                      <path d="M3 21l7-7" />
+                    </svg>
+                  </span>
+                </button>
+                <div class="photo-body">
+                  <div>
+                    <h3 class="photo-title">${escapeHtml(foto.titulo)}</h3>
+                    <span class="photo-meta">${escapeHtml(foto.categoria)} · ${escapeHtml(CONFIG.anio)}</span>
+                  </div>
+                  <a
+                    class="icon-action-btn"
+                    href="${escapeHtml(foto.descargaUrl || foto.url)}"
+                    download
+                    aria-label="Descargar ${escapeHtml(foto.titulo)}"
+                    title="Descargar foto"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" x2="12" y1="15" y2="3" />
+                    </svg>
+                  </a>
+                </div>
+              </article>
+            `
+            )
+            .join("");
+
+          grid.querySelectorAll("img").forEach(attachImageFallback);
+          grid.querySelectorAll("[data-photo-index]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              openLightbox(Number(btn.getAttribute("data-photo-index")));
+            });
+          });
+        }
+
+        function openLightbox(index) {
+          if (!state.fotosFiltradas.length) return;
+          state.lightboxIndex = (index + state.fotosFiltradas.length) % state.fotosFiltradas.length;
+          const foto = state.fotosFiltradas[state.lightboxIndex];
+
+          const modal = document.getElementById("lightbox-modal");
+          const img = document.getElementById("lightbox-img");
+          document.getElementById("lightbox-title").textContent = foto.titulo;
+          document.getElementById("lightbox-meta").textContent = `${foto.categoria} · Foto ${state.lightboxIndex + 1} de ${state.fotosFiltradas.length}`;
+          img.src = foto.url;
+          img.alt = foto.titulo;
+          document.getElementById("lightbox-open").href = foto.url;
+          document.getElementById("lightbox-download").href = foto.descargaUrl || foto.url;
+
+          modal.classList.add("is-open");
+          document.getElementById("lightbox-close").focus();
+        }
+
+        function closeLightbox() {
+          document.getElementById("lightbox-modal").classList.remove("is-open");
+        }
+
+        function initLightbox() {
+          const modal = document.getElementById("lightbox-modal");
+          document.getElementById("lightbox-close").addEventListener("click", closeLightbox);
+          document.getElementById("lightbox-prev").addEventListener("click", () => openLightbox(state.lightboxIndex - 1));
+          document.getElementById("lightbox-next").addEventListener("click", () => openLightbox(state.lightboxIndex + 1));
+          modal.addEventListener("click", (e) => {
+            if (e.target === modal) closeLightbox();
+          });
+        }
+
+        function normalizeEmbedUrl(rawUrl) {
+          if (!rawUrl) return "";
+          if (rawUrl.startsWith("#demo-reel")) return rawUrl;
+
+          const ytMatch = rawUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+          if (ytMatch) {
+            return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1&rel=0`;
+          }
+
+          if (rawUrl.includes("drive.google.com") && rawUrl.includes("/view")) {
+            return rawUrl.replace("/view", "/preview");
+          }
+
+          return rawUrl;
+        }
+
+        function renderVideos() {
+          const grid = document.getElementById("videos-grid");
+          grid.innerHTML = CONFIG.videos
+            .map(
+              (video, idx) => `
+              <article class="video-card">
+                <button
+                  type="button"
+                  class="video-poster"
+                  data-video-index="${idx}"
+                  aria-label="Reproducir video: ${escapeHtml(video.titulo)}"
+                >
+                  <img src="${escapeHtml(video.portadaUrl)}" alt="${escapeHtml(video.titulo)}" loading="lazy" referrerpolicy="no-referrer" />
+                  <div class="img-fallback"><span>Video · ${escapeHtml(video.duracion)}</span></div>
+                  <div class="video-poster-scrim">
+                    <span class="play-circle" aria-hidden="true">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <polygon points="6 4 20 12 6 20 6 4" />
+                      </svg>
+                    </span>
+                  </div>
+                </button>
+                <div class="video-body">
+                  <span class="video-meta tabular-nums">${escapeHtml(video.duracion)} · Video conmemorativo</span>
+                  <h3 class="video-title">${escapeHtml(video.titulo)}</h3>
+                  <p class="video-desc">${escapeHtml(video.descripcion || "")}</p>
+                  <div class="video-footer">
+                    <button type="button" class="btn-secondary" data-video-index="${idx}" style="min-height: 42px; padding: 8px 16px;">
+                      Ver video
+                    </button>
+                  </div>
+                </div>
+              </article>
+            `
+            )
+            .join("");
+
+          grid.querySelectorAll("img").forEach(attachImageFallback);
+          grid.querySelectorAll("[data-video-index]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              openVideoModal(Number(btn.getAttribute("data-video-index")));
+            });
+          });
+        }
+
+        function openVideoModal(index) {
+          const video = CONFIG.videos[index];
+          if (!video) return;
+
+          const modal = document.getElementById("video-modal");
+          const stage = document.getElementById("video-stage");
+          const externalLink = document.getElementById("video-modal-external");
+
+          document.getElementById("video-modal-title").textContent = video.titulo;
+          document.getElementById("video-modal-meta").textContent = `Duración ${video.duracion} · ${CONFIG.promocion}`;
+
+          const url = normalizeEmbedUrl(video.embedUrl);
+
+          if (state.reelTimer) {
+            clearInterval(state.reelTimer);
+            state.reelTimer = null;
+          }
+
+          if (!url || url.startsWith("#demo-reel")) {
+            externalLink.style.display = "none";
+            let slideIdx = 0;
+            const slides = CONFIG.fotos.length ? CONFIG.fotos : [{ titulo: video.titulo, url: video.portadaUrl }];
+
+            const renderSlide = () => {
+              const item = slides[slideIdx % slides.length];
+              stage.innerHTML = `
+                <div class="reel-player">
+                  <img class="reel-slide-img" src="${escapeHtml(item.url)}" alt="${escapeHtml(item.titulo)}" referrerpolicy="no-referrer" />
+                  <div class="reel-scrim"></div>
+                  <div class="reel-caption">
+                    <div>
+                      <div style="font-size: 0.78rem; opacity: 0.85;">Presentación conmemorativa · ${slideIdx + 1}/${slides.length}</div>
+                      <div style="font-size: 1rem; font-weight: 600;">${escapeHtml(item.titulo)}</div>
+                    </div>
+                    <button type="button" class="btn-secondary" id="reel-next-btn" style="min-height: 40px; padding: 6px 14px; font-size: 0.82rem;">Siguiente escena</button>
+                  </div>
+                </div>
+              `;
+              const nextBtn = document.getElementById("reel-next-btn");
+              if (nextBtn) {
+                nextBtn.addEventListener("click", () => {
+                  slideIdx = (slideIdx + 1) % slides.length;
+                  renderSlide();
+                });
+              }
+            };
+
+            renderSlide();
+            state.reelTimer = window.setInterval(() => {
+              slideIdx = (slideIdx + 1) % slides.length;
+              renderSlide();
+            }, 3500);
+          } else if (url.endsWith(".mp4") || url.endsWith(".webm")) {
+            externalLink.style.display = "inline-flex";
+            externalLink.href = video.embedUrl;
+            stage.innerHTML = `<video src="${escapeHtml(url)}" controls autoplay playsinline></video>`;
+          } else {
+            externalLink.style.display = "inline-flex";
+            externalLink.href = video.embedUrl;
+            stage.innerHTML = `<iframe src="${escapeHtml(url)}" title="${escapeHtml(video.titulo)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>`;
+          }
+
+          modal.classList.add("is-open");
+          document.getElementById("video-modal-close").focus();
+        }
+
+        function closeVideoModal() {
+          const modal = document.getElementById("video-modal");
+          modal.classList.remove("is-open");
+          document.getElementById("video-stage").innerHTML = "";
+          if (state.reelTimer) {
+            clearInterval(state.reelTimer);
+            state.reelTimer = null;
+          }
+        }
+
+        function initVideoModal() {
+          const modal = document.getElementById("video-modal");
+          document.getElementById("video-modal-close").addEventListener("click", closeVideoModal);
+          modal.addEventListener("click", (e) => {
+            if (e.target === modal) closeVideoModal();
+          });
+        }
+
+        function renderAnuario() {
+          const grid = document.getElementById("anuario-grid");
+
+          const studentsHtml = CONFIG.alumnos
+            .map(
+              (alumno, idx) => `
+              <button
+                type="button"
+                class="student-card"
+                data-student-index="${idx}"
+                aria-label="Ver ficha de ${escapeHtml(alumno.nombre)}"
+              >
+                <div class="student-avatar-wrap">
+                  <img src="${escapeHtml(alumno.fotoUrl)}" alt="${escapeHtml(alumno.nombre)}" loading="lazy" referrerpolicy="no-referrer" />
+                  <div class="img-fallback"><span>${escapeHtml(getInitials(alumno.nombre))}</span></div>
+                </div>
+                <h3 class="student-name">${escapeHtml(alumno.nombre)}</h3>
+                <p class="student-quote">“${escapeHtml(alumno.frase)}”</p>
+              </button>
+            `
+            )
+            .join("");
+
+          const promoCardHtml = `
+            <div class="student-promo-card">
+              <div class="student-promo-thumb">
+                <img src="${escapeHtml(CONFIG.portadaUrl)}" alt="${escapeHtml(CONFIG.promocion)}" loading="lazy" referrerpolicy="no-referrer" />
+                <div class="img-fallback"><span>${escapeHtml(CONFIG.anio)}</span></div>
+              </div>
+              <h3 class="student-name">${escapeHtml(CONFIG.promocion)}</h3>
+              <p class="student-quote" style="margin: 0;">${escapeHtml(CONFIG.colegio)} · Nivel ${escapeHtml(CONFIG.nivel)}</p>
+            </div>
+          `;
+
+          grid.innerHTML = studentsHtml + promoCardHtml;
+          grid.querySelectorAll("img").forEach(attachImageFallback);
+
+          grid.querySelectorAll("[data-student-index]").forEach((card) => {
+            card.addEventListener("click", () => {
+              openStudentModal(Number(card.getAttribute("data-student-index")));
+            });
+          });
+        }
+
+        function openStudentModal(index) {
+          if (!CONFIG.alumnos.length) return;
+          state.studentIndex = (index + CONFIG.alumnos.length) % CONFIG.alumnos.length;
+          const alumno = CONFIG.alumnos[state.studentIndex];
+
+          const modal = document.getElementById("student-modal");
+          const img = document.getElementById("student-modal-img");
+
+          document.getElementById("student-modal-name").textContent = alumno.nombre;
+          document.getElementById("student-modal-initials").textContent = getInitials(alumno.nombre);
+          document.getElementById("student-modal-promo").textContent = `${CONFIG.promocion} · Egresado ${state.studentIndex + 1} de ${CONFIG.alumnos.length}`;
+          document.getElementById("student-modal-quote").textContent = `“${alumno.frase}”`;
+
+          img.parentElement.classList.remove("img-broken");
+          img.src = alumno.fotoUrl;
+          img.alt = alumno.nombre;
+          attachImageFallback(img);
+
+          modal.classList.add("is-open");
+          document.getElementById("student-modal-close").focus();
+        }
+
+        function closeStudentModal() {
+          document.getElementById("student-modal").classList.remove("is-open");
+        }
+
+        function initStudentModal() {
+          const modal = document.getElementById("student-modal");
+          document.getElementById("student-modal-close").addEventListener("click", closeStudentModal);
+          document.getElementById("student-prev").addEventListener("click", () => openStudentModal(state.studentIndex - 1));
+          document.getElementById("student-next").addEventListener("click", () => openStudentModal(state.studentIndex + 1));
+          modal.addEventListener("click", (e) => {
+            if (e.target === modal) closeStudentModal();
+          });
+        }
+
+        function renderDedicatoria() {
+          const card = document.getElementById("dedicatoria-card");
+          const msg = CONFIG.mensajeTutora;
+          const paragraphs = String(msg.texto || "")
+            .split(/\n\s*\n/)
+            .map((p) => `<p>${escapeHtml(p)}</p>`)
+            .join("");
+
+          card.innerHTML = `
+            <div class="tutora-profile">
+              <div class="tutora-photo">
+                <img src="${escapeHtml(msg.fotoUrl)}" alt="${escapeHtml(msg.nombre)}" loading="lazy" referrerpolicy="no-referrer" />
+                <div class="img-fallback"><span>${escapeHtml(getInitials(msg.nombre))}</span></div>
+              </div>
+              <div>
+                <h3 class="tutora-name">${escapeHtml(msg.nombre)}</h3>
+                <p class="tutora-role">${escapeHtml(msg.cargo || "Docente Tutora")}</p>
+              </div>
+            </div>
+
+            <div class="letter-content">
+              <h3 class="letter-title">${escapeHtml(msg.titulo)}</h3>
+              <div class="letter-body">${paragraphs}</div>
+              <div class="letter-signature">
+                <span class="photo-meta">Con cariño · ${escapeHtml(CONFIG.colegio)} (${escapeHtml(CONFIG.anio)})</span>
+                <a
+                  class="btn-whatsapp-top"
+                  href="${buildWhatsAppUrl()}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Compartir tarjeta por WhatsApp
+                </a>
+              </div>
+            </div>
+          `;
+
+          card.querySelectorAll("img").forEach(attachImageFallback);
+        }
+
+        function initKeyboardShortcuts() {
+          document.addEventListener("keydown", (e) => {
+            const lightboxOpen = document.getElementById("lightbox-modal").classList.contains("is-open");
+            const videoOpen = document.getElementById("video-modal").classList.contains("is-open");
+            const studentOpen = document.getElementById("student-modal").classList.contains("is-open");
+
+            if (e.key === "Escape") {
+              if (lightboxOpen) closeLightbox();
+              if (videoOpen) closeVideoModal();
+              if (studentOpen) closeStudentModal();
+            } else if (lightboxOpen && e.key === "ArrowLeft") {
+              openLightbox(state.lightboxIndex - 1);
+            } else if (lightboxOpen && e.key === "ArrowRight") {
+              openLightbox(state.lightboxIndex + 1);
+            }
+          });
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+          initHeaderAndHero();
+          initTabs();
+          initMusicPlayer();
+          renderFotoFilters();
+          renderFotosGrid();
+          initLightbox();
+          renderVideos();
+          initVideoModal();
+          renderAnuario();
+          initStudentModal();
+          renderDedicatoria();
+          initKeyboardShortcuts();
+        });
+
+        // Registro silencioso de Service Worker para modo PWA standalone
+        if ("serviceWorker" in navigator) {
+          window.addEventListener("load", () => {
+            navigator.serviceWorker.register("./sw.js").catch(() => {});
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

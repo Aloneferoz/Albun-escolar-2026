@@ -1,0 +1,33 @@
+{
+  "id": "./",
+  "name": "Álbum Digital de Promoción Escolar 2026",
+  "short_name": "Álbum 2026",
+  "description": "Álbum y tarjeta digital de promoción escolar: fotos, videos, anuario y dedicatorias.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f9fc",
+  "theme_color": "#183a6e",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
