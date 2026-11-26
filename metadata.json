@@ -1,6 +1,6 @@
 {
   "name": "Álbum Digital de Promoción Escolar",
-  "description": "Álbum y tarjeta digital interactiva de promoción escolar, optimizada para abrirse desde el celular por WhatsApp.",
+  "description": "Álbum y tarjeta digital interactiva de promoción escolar, optimizada para abrirse desde el celular, tablet, computadora.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
