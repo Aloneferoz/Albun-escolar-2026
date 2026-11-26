@@ -498,6 +498,7 @@
       .album-workspace {
         padding-top: 16px;
         padding-bottom: 56px;
+        scroll-margin-top: 76px;
       }
 
       .section-heading-group {
@@ -1823,10 +1824,18 @@
           document.querySelectorAll("[data-tab]").forEach((btn) => {
             btn.addEventListener("click", () => {
               const target = btn.getAttribute("data-tab");
+
+              // Cambiar el contenido de la pestaña
               switchTab(target);
+
+              // Desplazarse automáticamente hasta el álbum
               const panel = document.getElementById("album-panel");
-              if (panel && window.scrollY > panel.offsetTop) {
-                panel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+              if (panel) {
+                panel.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start"
+                });
               }
             });
           });
