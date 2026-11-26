@@ -1,0 +1,292 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Puerta de denegación por defecto (bloquea también cualquier ruta heredada como /publishedAlbums)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers globales endurecidos
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSlug(slug) {
+      return slug is string && slug.size() >= 2 && slug.size() <= 80 && slug.matches('^[a-z0-9\\-]+$');
+    }
+
+    function isValidToken(token) {
+      return token is string && token.size() >= 32 && token.size() <= 64 && token.matches('^[A-Za-z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    // Solo la cuenta autorizada principal puede gestionar administradores
+    function isSuperAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'environmentcesar@gmail.com';
+    }
+
+    function isAdmin() {
+      return isSuperAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidPhotoItem(item) {
+      return item is map &&
+             item.keys().hasAll(['titulo', 'categoria', 'url']) &&
+             item.keys().hasOnly(['titulo', 'categoria', 'url', 'descargaUrl']) &&
+             item.titulo is string && item.titulo.size() >= 1 && item.titulo.size() <= 140 &&
+             item.categoria is string && item.categoria.size() >= 1 && item.categoria.size() <= 40 &&
+             item.url is string && item.url.size() >= 1 && item.url.size() <= 500 &&
+             (!('descargaUrl' in item) || (item.descargaUrl is string && item.descargaUrl.size() <= 500));
+    }
+
+    function isValidVideoItem(item) {
+      return item is map &&
+             item.keys().hasAll(['titulo', 'duracion', 'embedUrl']) &&
+             item.keys().hasOnly(['titulo', 'duracion', 'descripcion', 'portadaUrl', 'embedUrl']) &&
+             item.titulo is string && item.titulo.size() >= 1 && item.titulo.size() <= 160 &&
+             item.duracion is string && item.duracion.size() >= 1 && item.duracion.size() <= 20 &&
+             (!('descripcion' in item) || (item.descripcion is string && item.descripcion.size() <= 400)) &&
+             (!('portadaUrl' in item) || (item.portadaUrl is string && item.portadaUrl.size() <= 500)) &&
+             item.embedUrl is string && item.embedUrl.size() >= 1 && item.embedUrl.size() <= 500;
+    }
+
+    function isValidPublicStudentCard(card) {
+      return card is map &&
+             card.keys().hasAll(['nombre']) &&
+             card.keys().hasOnly(['nombre', 'frase', 'fotoUrl']) &&
+             card.nombre is string && card.nombre.size() >= 2 && card.nombre.size() <= 120 &&
+             (!('frase' in card) || (card.frase is string && card.frase.size() <= 400)) &&
+             (!('fotoUrl' in card) || (card.fotoUrl is string && card.fotoUrl.size() <= 500));
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['email', 'role', 'createdAt']) &&
+             data.keys().hasOnly(['email', 'displayName', 'role', 'createdAt']) &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 120)) &&
+             data.role == 'admin' &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidDraftAlbum(data) {
+      return data.keys().hasAll([
+               'slug', 'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+               'status', 'ownerUid', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'slug', 'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+               'portadaUrl', 'musicaUrl', 'whatsappTexto',
+               'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
+               'fotos', 'videos',
+               'allowGroupAnuario', 'generalShareEnabled', 'generalAccessToken', 'generalTokenRevoked',
+               'status', 'ownerUid', 'hasUnpublishedChanges',
+               'createdAt', 'updatedAt'
+             ]) &&
+             isValidSlug(data.slug) && data.slug.size() >= 3 &&
+             data.colegio is string && data.colegio.size() >= 2 && data.colegio.size() <= 140 &&
+             data.promocion is string && data.promocion.size() >= 2 && data.promocion.size() <= 140 &&
+             data.nivel in ['Inicial', 'Primaria', 'Secundaria'] &&
+             data.anio is string && data.anio.size() == 4 && data.anio.matches('^[0-9]{4}$') &&
+             data.paleta in ['inicial-pastel', 'primaria-azul-oro', 'secundaria-elegante'] &&
+             (!('portadaUrl' in data) || (data.portadaUrl is string && data.portadaUrl.size() <= 500)) &&
+             (!('musicaUrl' in data) || (data.musicaUrl is string && data.musicaUrl.size() <= 500)) &&
+             (!('whatsappTexto' in data) || (data.whatsappTexto is string && data.whatsappTexto.size() <= 500)) &&
+             (!('tutoraTitulo' in data) || (data.tutoraTitulo is string && data.tutoraTitulo.size() <= 160)) &&
+             (!('tutoraNombre' in data) || (data.tutoraNombre is string && data.tutoraNombre.size() <= 120)) &&
+             (!('tutoraCargo' in data) || (data.tutoraCargo is string && data.tutoraCargo.size() <= 120)) &&
+             (!('tutoraFotoUrl' in data) || (data.tutoraFotoUrl is string && data.tutoraFotoUrl.size() <= 500)) &&
+             (!('tutoraTexto' in data) || (data.tutoraTexto is string && data.tutoraTexto.size() <= 4000)) &&
+             (!('fotos' in data) || (data.fotos is list && data.fotos.size() <= 60 && (data.fotos.size() == 0 || isValidPhotoItem(data.fotos[0])))) &&
+             (!('videos' in data) || (data.videos is list && data.videos.size() <= 20 && (data.videos.size() == 0 || isValidVideoItem(data.videos[0])))) &&
+             (!('allowGroupAnuario' in data) || data.allowGroupAnuario is bool) &&
+             (!('generalShareEnabled' in data) || data.generalShareEnabled is bool) &&
+             (!('generalAccessToken' in data) || (data.generalAccessToken is string && (data.generalAccessToken == '' || isValidToken(data.generalAccessToken)))) &&
+             (!('generalTokenRevoked' in data) || data.generalTokenRevoked is bool) &&
+             data.status in ['borrador', 'publicado'] &&
+             data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             (!('hasUnpublishedChanges' in data) || data.hasUnpublishedChanges is bool) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidDraftStudent(data, albumId) {
+      return data.keys().hasAll(['albumId', 'slug', 'nombre', 'accessToken', 'tokenRevoked', 'status', 'order', 'ownerUid', 'createdAt', 'updatedAt']) &&
+             data.keys().hasOnly([
+               'albumId', 'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
+               'accessToken', 'tokenRevoked',
+               'status', 'order', 'ownerUid', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(data.albumId) && data.albumId == albumId &&
+             isValidSlug(data.slug) &&
+             data.nombre is string && data.nombre.size() >= 2 && data.nombre.size() <= 120 &&
+             (!('frase' in data) || (data.frase is string && data.frase.size() <= 400)) &&
+             (!('fotoUrl' in data) || (data.fotoUrl is string && data.fotoUrl.size() <= 500)) &&
+             (!('parentPhone' in data) || (data.parentPhone is string && data.parentPhone.size() <= 30)) &&
+             isValidToken(data.accessToken) &&
+             data.tokenRevoked is bool &&
+             data.status in ['borrador', 'publicado'] &&
+             data.order is number && data.order >= 0 && data.order <= 5000 &&
+             data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidAlbumAccess(data) {
+      return data.keys().hasAll([
+               'albumId', 'scope', 'albumStatus', 'studentStatus', 'revoked',
+               'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+               'publishedBy', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'albumId', 'scope', 'albumStatus', 'studentStatus', 'revoked',
+               'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+               'portadaUrl', 'musicaUrl',
+               'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
+               'fotos', 'videos', 'student', 'anuario',
+               'publishedBy', 'updatedAt'
+             ]) &&
+             isValidId(data.albumId) &&
+             data.scope in ['student', 'album'] &&
+             data.albumStatus in ['borrador', 'publicado'] &&
+             data.studentStatus in ['borrador', 'publicado'] &&
+             data.revoked is bool &&
+             data.colegio is string && data.colegio.size() >= 2 && data.colegio.size() <= 140 &&
+             data.promocion is string && data.promocion.size() >= 2 && data.promocion.size() <= 140 &&
+             data.nivel in ['Inicial', 'Primaria', 'Secundaria'] &&
+             data.anio is string && data.anio.size() == 4 && data.anio.matches('^[0-9]{4}$') &&
+             data.paleta in ['inicial-pastel', 'primaria-azul-oro', 'secundaria-elegante'] &&
+             (!('portadaUrl' in data) || (data.portadaUrl is string && data.portadaUrl.size() <= 500)) &&
+             (!('musicaUrl' in data) || (data.musicaUrl is string && data.musicaUrl.size() <= 500)) &&
+             (!('tutoraTitulo' in data) || (data.tutoraTitulo is string && data.tutoraTitulo.size() <= 160)) &&
+             (!('tutoraNombre' in data) || (data.tutoraNombre is string && data.tutoraNombre.size() <= 120)) &&
+             (!('tutoraCargo' in data) || (data.tutoraCargo is string && data.tutoraCargo.size() <= 120)) &&
+             (!('tutoraFotoUrl' in data) || (data.tutoraFotoUrl is string && data.tutoraFotoUrl.size() <= 500)) &&
+             (!('tutoraTexto' in data) || (data.tutoraTexto is string && data.tutoraTexto.size() <= 4000)) &&
+             (!('fotos' in data) || (data.fotos is list && data.fotos.size() <= 60 && (data.fotos.size() == 0 || isValidPhotoItem(data.fotos[0])))) &&
+             (!('videos' in data) || (data.videos is list && data.videos.size() <= 20 && (data.videos.size() == 0 || isValidVideoItem(data.videos[0])))) &&
+             (!('student' in data) || isValidPublicStudentCard(data.student)) &&
+             (!('anuario' in data) || (data.anuario is list && data.anuario.size() <= 120 && (data.anuario.size() == 0 || isValidPublicStudentCard(data.anuario[0])))) &&
+             data.publishedBy is string && data.publishedBy.size() >= 1 && data.publishedBy.size() <= 128 &&
+             data.updatedAt is timestamp;
+    }
+
+    // Colección de administradores: SOLO la cuenta autorizada principal puede crear, editar o revocar admins
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isSuperAdmin() || (isVerifiedUser() && request.auth.uid == uid));
+      allow list: if isSuperAdmin();
+      allow create: if isValidId(uid) && isSuperAdmin() &&
+                    isValidAdminUser(incoming()) &&
+                    incoming().createdAt == request.time;
+      allow update: if isValidId(uid) && isSuperAdmin() &&
+                    isValidAdminUser(incoming()) &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email']);
+      allow delete: if isValidId(uid) && isSuperAdmin() && uid != request.auth.uid;
+    }
+
+    // Espacio de trabajo privado de álbumes (solo admins)
+    match /albums/{albumId} {
+      allow get: if isValidId(albumId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(albumId) && isAdmin() &&
+                    isValidDraftAlbum(incoming()) &&
+                    incoming().ownerUid == request.auth.uid &&
+                    incoming().createdAt == request.time &&
+                    incoming().updatedAt == request.time;
+      allow update: if isValidId(albumId) && isAdmin() &&
+                    isValidDraftAlbum(incoming()) &&
+                    incoming().ownerUid == existing().ownerUid &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().updatedAt == request.time &&
+                    incoming().diff(existing()).affectedKeys().hasOnly([
+                      'slug', 'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+                      'portadaUrl', 'musicaUrl', 'whatsappTexto',
+                      'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
+                      'fotos', 'videos',
+                      'allowGroupAnuario', 'generalShareEnabled', 'generalAccessToken', 'generalTokenRevoked',
+                      'status', 'hasUnpublishedChanges', 'updatedAt'
+                    ]);
+      allow delete: if isValidId(albumId) && isAdmin();
+
+      // Alumnos privados (contiene parentPhone y accessToken; acceso exclusivo para admins)
+      match /students/{studentId} {
+        allow get: if isValidId(albumId) && isValidId(studentId) && isAdmin();
+        allow list: if isAdmin();
+        allow create: if isValidId(albumId) && isValidId(studentId) && isAdmin() &&
+                      existsAfter(/databases/$(database)/documents/albums/$(albumId)) &&
+                      isValidDraftStudent(incoming(), albumId) &&
+                      incoming().ownerUid == request.auth.uid &&
+                      incoming().createdAt == request.time &&
+                      incoming().updatedAt == request.time;
+        allow update: if isValidId(albumId) && isValidId(studentId) && isAdmin() &&
+                      isValidDraftStudent(incoming(), albumId) &&
+                      incoming().albumId == existing().albumId &&
+                      incoming().ownerUid == existing().ownerUid &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().updatedAt == request.time &&
+                      incoming().diff(existing()).affectedKeys().hasOnly([
+                        'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
+                        'accessToken', 'tokenRevoked',
+                        'status', 'order', 'updatedAt'
+                      ]);
+        allow delete: if isValidId(albumId) && isValidId(studentId) && isAdmin();
+      }
+    }
+
+    // Acceso familiar por token aleatorio no enumerable (SIN listado público y SIN PII)
+    match /albumAccess/{accessToken} {
+      allow get: if isValidToken(accessToken) && (
+                   isAdmin() || (
+                     resource != null &&
+                     existing().revoked == false &&
+                     existing().albumStatus == 'publicado' &&
+                     (existing().scope == 'album' || existing().studentStatus == 'publicado')
+                   )
+                 );
+      allow list: if isAdmin();
+      allow create: if isValidToken(accessToken) && isAdmin() &&
+                    existsAfter(/databases/$(database)/documents/albums/$(incoming().albumId)) &&
+                    isValidAlbumAccess(incoming()) &&
+                    incoming().publishedBy == request.auth.uid &&
+                    incoming().updatedAt == request.time;
+      allow update: if isValidToken(accessToken) && isAdmin() &&
+                    isValidAlbumAccess(incoming()) &&
+                    incoming().albumId == existing().albumId &&
+                    incoming().scope == existing().scope &&
+                    incoming().publishedBy == request.auth.uid &&
+                    incoming().updatedAt == request.time &&
+                    incoming().diff(existing()).affectedKeys().hasOnly([
+                      'albumStatus', 'studentStatus', 'revoked',
+                      'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+                      'portadaUrl', 'musicaUrl',
+                      'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
+                      'fotos', 'videos', 'student', 'anuario',
+                      'publishedBy', 'updatedAt'
+                    ]);
+      allow delete: if isValidToken(accessToken) && isAdmin();
+    }
+
+    // Verificación de conexión inicial
+    match /test/connection {
+      allow get: if true;
+    }
+  }
+}

@@ -1,0 +1,359 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Administrador delegado autorizado únicamente por el superadministrador.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "role", "createdAt"]
+    },
+    "DraftAlbum": {
+      "title": "DraftAlbum",
+      "description": "Espacio de trabajo privado del administrador para editar álbumes en borrador o publicados.",
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9\\-]+$"
+        },
+        "colegio": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "promocion": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "nivel": {
+          "type": "string",
+          "enum": ["Inicial", "Primaria", "Secundaria"]
+        },
+        "anio": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4,
+          "pattern": "^[0-9]{4}$"
+        },
+        "paleta": {
+          "type": "string",
+          "enum": ["inicial-pastel", "primaria-azul-oro", "secundaria-elegante"]
+        },
+        "portadaUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "musicaUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "whatsappTexto": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "tutoraTitulo": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "tutoraNombre": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "tutoraCargo": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "tutoraFotoUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "tutoraTexto": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "fotos": {
+          "type": "array",
+          "description": "Lista acotada de hasta 60 fotografías del álbum."
+        },
+        "videos": {
+          "type": "array",
+          "description": "Lista acotada de hasta 20 videos de YouTube del álbum."
+        },
+        "allowGroupAnuario": {
+          "type": "boolean",
+          "description": "Si es false, el enlace individual muestra solo al alumno de esa familia."
+        },
+        "generalShareEnabled": {
+          "type": "boolean",
+          "description": "Habilita o deshabilita el enlace general por token aleatorio."
+        },
+        "generalAccessToken": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Token aleatorio de 32-64 caracteres para el enlace general opcional."
+        },
+        "generalTokenRevoked": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["borrador", "publicado"]
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "hasUnpublishedChanges": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "slug",
+        "colegio",
+        "promocion",
+        "nivel",
+        "anio",
+        "paleta",
+        "status",
+        "ownerUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DraftStudent": {
+      "title": "DraftStudent",
+      "description": "Ficha privada de alumno en administración (incluye teléfono opcional y token individual privado).",
+      "type": "object",
+      "properties": {
+        "albumId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9\\-]+$"
+        },
+        "nombre": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "frase": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "fotoUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "parentPhone": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "accessToken": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9_\\-]+$"
+        },
+        "tokenRevoked": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["borrador", "publicado"]
+        },
+        "order": {
+          "type": "number"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "albumId",
+        "slug",
+        "nombre",
+        "accessToken",
+        "tokenRevoked",
+        "status",
+        "order",
+        "ownerUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AlbumAccessToken": {
+      "title": "AlbumAccessToken",
+      "description": "Puerta de acceso privada por token aleatorio de alta entropía para familias sin cuenta (sin listado público y sin PII).",
+      "type": "object",
+      "properties": {
+        "albumId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["student", "album"]
+        },
+        "albumStatus": {
+          "type": "string",
+          "enum": ["borrador", "publicado"]
+        },
+        "studentStatus": {
+          "type": "string",
+          "enum": ["borrador", "publicado"]
+        },
+        "revoked": {
+          "type": "boolean"
+        },
+        "colegio": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "promocion": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 140
+        },
+        "nivel": {
+          "type": "string",
+          "enum": ["Inicial", "Primaria", "Secundaria"]
+        },
+        "anio": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 4,
+          "pattern": "^[0-9]{4}$"
+        },
+        "paleta": {
+          "type": "string",
+          "enum": ["inicial-pastel", "primaria-azul-oro", "secundaria-elegante"]
+        },
+        "portadaUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "musicaUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "tutoraTitulo": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "tutoraNombre": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "tutoraCargo": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "tutoraFotoUrl": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "tutoraTexto": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "fotos": {
+          "type": "array"
+        },
+        "videos": {
+          "type": "array"
+        },
+        "student": {
+          "type": "object"
+        },
+        "anuario": {
+          "type": "array"
+        },
+        "publishedBy": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "albumId",
+        "scope",
+        "albumStatus",
+        "studentStatus",
+        "revoked",
+        "colegio",
+        "promocion",
+        "nivel",
+        "anio",
+        "paleta",
+        "publishedBy",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Administradores delegados gestionados exclusivamente por la cuenta superadministradora."
+    },
+    "/albums/{albumId}": {
+      "schema": { "$ref": "#/entities/DraftAlbum" },
+      "description": "Borradores y configuración privada de álbumes por cliente."
+    },
+    "/albums/{albumId}/students/{studentId}": {
+      "schema": { "$ref": "#/entities/DraftStudent" },
+      "description": "Alumnos privados, teléfonos para WhatsApp y tokens individuales."
+    },
+    "/albumAccess/{accessToken}": {
+      "schema": { "$ref": "#/entities/AlbumAccessToken" },
+      "description": "Instantáneas individuales o generales protegidas por token aleatorio no enumerable, revocable al instante y sin PII."
+    }
+  }
+}

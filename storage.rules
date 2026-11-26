@@ -1,0 +1,34 @@
+rules_version = '2';
+
+// Reglas recomendadas de Firebase Storage para privacidad de menores (AlbumEscolar).
+// Se bloquea por defecto todo acceso público y listado del bucket.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isSuperAdmin() {
+      return request.auth != null &&
+             request.auth.token.email_verified == true &&
+             request.auth.token.email == 'environmentcesar@gmail.com';
+    }
+
+    function isValidMediaWrite() {
+      return request.resource != null &&
+             request.resource.size < 15 * 1024 * 1024 &&
+             request.resource.contentType.matches('^(image|video|audio)/.*$');
+    }
+
+    // Rutas privadas por álbum y UUID aleatorio no predecible (nunca por nombre de alumno).
+    // Nunca habilitar `allow list` para evitar enumeración de fotografías de menores.
+    match /albums/{albumId}/{assetToken}/{fileName} {
+      allow get: if isSuperAdmin();
+      allow list: if false;
+      allow create, update: if isSuperAdmin() &&
+                            assetToken.size() >= 24 &&
+                            isValidMediaWrite();
+      allow delete: if isSuperAdmin();
+    }
+  }
+}
