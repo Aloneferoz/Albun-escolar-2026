@@ -19,16 +19,21 @@ import {
   BLUEPRINT_LIMITS,
   buildPublicTokenUrl,
   buildWhatsAppShareUrl,
+  ColorPalette,
+  DEFAULT_PALETTES,
   DraftAlbum,
   DraftStudent,
   isValidAccessToken,
+  PaletteColors,
   PublishStatus,
+  resolveAlbumPalette,
   slugify
 } from '../../types/album';
 
 interface AdminStudentsManagerProps {
   album: DraftAlbum;
   students: DraftStudent[];
+  palettes?: ColorPalette[];
   onUpsertStudent: (
     studentId: string | null,
     input: {
@@ -37,6 +42,8 @@ interface AdminStudentsManagerProps {
       frase: string;
       fotoUrl: string;
       parentPhone: string;
+      paleta?: string | null;
+      paletaConfig?: PaletteColors;
       accessToken?: string;
       tokenRevoked?: boolean;
       status: PublishStatus;
@@ -53,6 +60,7 @@ interface AdminStudentsManagerProps {
 export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   album,
   students,
+  palettes = DEFAULT_PALETTES,
   onUpsertStudent,
   onBatchImport,
   onDeleteStudent,
@@ -79,6 +87,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     '/src/assets/images/alumno_1_1795554404726.jpg'
   );
   const [parentPhone, setParentPhone] = useState('');
+  const [studentPaleta, setStudentPaleta] = useState<string>('');
   const [status, setStatus] = useState<PublishStatus>('publicado');
   const [order, setOrder] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -86,6 +95,12 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
   // Estado de carga rápida por lista
   const [batchText, setBatchText] = useState('');
   const [batchBusy, setBatchBusy] = useState(false);
+
+  const catalog = palettes.length > 0 ? palettes : DEFAULT_PALETTES;
+  const albumResolvedPalette = useMemo(
+    () => resolveAlbumPalette(album.paleta, album.paletaConfig, catalog),
+    [album.paleta, album.paletaConfig, catalog]
+  );
 
   const filteredStudents = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -115,6 +130,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     );
     setFotoUrl('/src/assets/images/alumno_1_1795554404726.jpg');
     setParentPhone('');
+    setStudentPaleta('');
     setStatus('publicado');
     setOrder(students.length);
     setIsAddOpen(true);
@@ -127,6 +143,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     setFrase(st.frase);
     setFotoUrl(st.fotoUrl);
     setParentPhone(st.parentPhone);
+    setStudentPaleta(st.paleta || '');
     setStatus(st.status);
     setOrder(st.order);
     setIsAddOpen(true);
@@ -136,12 +153,28 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     e.preventDefault();
     setSaving(true);
     try {
+      const selectedPaletteObj = studentPaleta
+        ? catalog.find((p) => p.codigo === studentPaleta)
+        : undefined;
+      const customColors = selectedPaletteObj
+        ? {
+            colorPrincipal: selectedPaletteObj.colorPrincipal,
+            colorSecundario: selectedPaletteObj.colorSecundario,
+            colorAcento: selectedPaletteObj.colorAcento,
+            colorTexto: selectedPaletteObj.colorTexto
+          }
+        : editingStudent?.paleta === studentPaleta
+          ? editingStudent?.paletaConfig
+          : undefined;
+
       await onUpsertStudent(editingStudent ? editingStudent.id : null, {
         nombre,
         slug: slugify(slug || nombre, BLUEPRINT_LIMITS.STUDENT_SLUG_MIN),
         frase,
         fotoUrl,
         parentPhone,
+        paleta: studentPaleta || null,
+        paletaConfig: studentPaleta ? customColors : undefined,
         accessToken: editingStudent?.accessToken,
         tokenRevoked: editingStudent?.tokenRevoked ?? false,
         status,
@@ -177,6 +210,8 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
       frase: current.frase,
       fotoUrl: current.fotoUrl,
       parentPhone: current.parentPhone,
+      paleta: current.paleta ?? null,
+      paletaConfig: current.paletaConfig,
       accessToken: current.accessToken,
       tokenRevoked: current.tokenRevoked,
       status: current.status,
@@ -188,6 +223,8 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
       frase: swapWith.frase,
       fotoUrl: swapWith.fotoUrl,
       parentPhone: swapWith.parentPhone,
+      paleta: swapWith.paleta ?? null,
+      paletaConfig: swapWith.paletaConfig,
       accessToken: swapWith.accessToken,
       tokenRevoked: swapWith.tokenRevoked,
       status: swapWith.status,
@@ -346,6 +383,45 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                                 ? `Tel. padre: ${st.parentPhone}`
                                 : 'Sin teléfono guardado'}
                             </div>
+                            {st.paleta ? (
+                              <div className="inline-flex items-center gap-1.5 mt-1 px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-medium text-slate-700">
+                                {(() => {
+                                  const resolved = resolveAlbumPalette(
+                                    st.paleta,
+                                    st.paletaConfig,
+                                    catalog
+                                  );
+                                  return (
+                                    <>
+                                      <span className="inline-flex items-center gap-0.5">
+                                        <span
+                                          className="w-2 h-2 rounded-full"
+                                          style={{
+                                            backgroundColor:
+                                              resolved.colors.colorPrincipal
+                                          }}
+                                        />
+                                        <span
+                                          className="w-2 h-2 rounded-full"
+                                          style={{
+                                            backgroundColor:
+                                              resolved.colors.colorAcento
+                                          }}
+                                        />
+                                      </span>
+                                      <span className="truncate max-w-[160px]">
+                                        Paleta:{' '}
+                                        {resolved.palette?.nombre || st.paleta}
+                                      </span>
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                Paleta: hereda de {album.colegio}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -401,6 +477,8 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                                 frase: st.frase,
                                 fotoUrl: st.fotoUrl,
                                 parentPhone: st.parentPhone,
+                                paleta: st.paleta ?? null,
+                                paletaConfig: st.paletaConfig,
                                 accessToken: st.accessToken,
                                 tokenRevoked: st.tokenRevoked,
                                 status:
@@ -668,6 +746,78 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                     <option value="borrador">Borrador (oculto)</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Paleta visual individual (opcional)
+                </label>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={studentPaleta}
+                    onChange={(e) => setStudentPaleta(e.target.value)}
+                    className="flex-1 h-9 px-3 rounded-lg border border-slate-200 text-sm bg-white text-slate-900"
+                  >
+                    <option value="">
+                      Heredar del colegio/evento (
+                      {albumResolvedPalette.palette?.nombre ||
+                        albumResolvedPalette.codigo}
+                      )
+                    </option>
+                    {catalog
+                      .filter((p) => p.activa || p.codigo === studentPaleta)
+                      .map((p) => (
+                        <option key={p.codigo} value={p.codigo}>
+                          {p.nombre} ({p.codigo})
+                        </option>
+                      ))}
+                  </select>
+                  {(() => {
+                    const previewRes = studentPaleta
+                      ? resolveAlbumPalette(
+                          studentPaleta,
+                          editingStudent?.paleta === studentPaleta
+                            ? editingStudent.paletaConfig
+                            : undefined,
+                          catalog
+                        )
+                      : albumResolvedPalette;
+                    return (
+                      <div
+                        className="inline-flex h-9 w-16 rounded-lg overflow-hidden border border-slate-200 shrink-0"
+                        title={previewRes.palette?.nombre || previewRes.codigo}
+                      >
+                        <span
+                          className="flex-1"
+                          style={{
+                            backgroundColor: previewRes.colors.colorPrincipal
+                          }}
+                        />
+                        <span
+                          className="flex-1"
+                          style={{
+                            backgroundColor: previewRes.colors.colorSecundario
+                          }}
+                        />
+                        <span
+                          className="flex-1"
+                          style={{
+                            backgroundColor: previewRes.colors.colorAcento
+                          }}
+                        />
+                        <span
+                          className="flex-1"
+                          style={{
+                            backgroundColor: previewRes.colors.colorTexto
+                          }}
+                        />
+                      </div>
+                    );
+                  })()}
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Si eliges una paleta distinta, aplicará solo al enlace familiar privado de este alumno(a).
+                </p>
               </div>
             </div>
 

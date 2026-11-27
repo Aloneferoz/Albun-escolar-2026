@@ -1,9 +1,29 @@
+import {
+  ColorPalette,
+  DEFAULT_PALETTE_CODE,
+  DEFAULT_PALETTE_COLORS,
+  DEFAULT_PALETTES,
+  isValidHexColor,
+  normalizeHexColor,
+  PaletteColors,
+  resolveAlbumPalette,
+  sanitizePaletteColors
+} from '../theme/palettes';
+
+export type { ColorPalette, PaletteColors };
+export {
+  DEFAULT_PALETTE_CODE,
+  DEFAULT_PALETTE_COLORS,
+  DEFAULT_PALETTES,
+  isValidHexColor,
+  normalizeHexColor,
+  resolveAlbumPalette,
+  sanitizePaletteColors
+};
+
 export type NivelEducativo = 'Inicial' | 'Primaria' | 'Secundaria';
 
-export type PaletaVisual =
-  | 'inicial-pastel'
-  | 'primaria-azul-oro'
-  | 'secundaria-elegante';
+export type PaletaVisual = string;
 
 export type PublishStatus = 'borrador' | 'publicado';
 
@@ -43,6 +63,7 @@ export interface DraftAlbum {
   nivel: NivelEducativo;
   anio: string;
   paleta: PaletaVisual;
+  paletaConfig?: PaletteColors;
   portadaUrl: string;
   musicaUrl: string;
   whatsappTexto: string;
@@ -72,6 +93,8 @@ export interface DraftStudent {
   frase: string;
   fotoUrl: string;
   parentPhone: string;
+  paleta?: PaletaVisual;
+  paletaConfig?: PaletteColors;
   accessToken: string;
   tokenRevoked: boolean;
   status: PublishStatus;
@@ -92,6 +115,7 @@ export interface AlbumAccessDoc {
   nivel: NivelEducativo;
   anio: string;
   paleta: PaletaVisual;
+  paletaConfig?: PaletteColors;
   portadaUrl?: string;
   musicaUrl?: string;
   tutoraTitulo?: string;
@@ -136,7 +160,12 @@ export const BLUEPRINT_LIMITS = {
   STUDENT_NAME_MAX: 120,
   STUDENT_FRASE_MAX: 400,
   PARENT_PHONE_MAX: 30,
-  ORDER_MAX: 5000
+  ORDER_MAX: 5000,
+  PALETTE_CODE_MIN: 3,
+  PALETTE_CODE_MAX: 60,
+  PALETTE_NAME_MIN: 2,
+  PALETTE_NAME_MAX: 80,
+  PALETTE_DESC_MAX: 240
 } as const;
 
 export function generateAccessToken(byteLength = 27): string {

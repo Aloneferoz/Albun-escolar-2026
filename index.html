@@ -1765,9 +1765,9 @@
         // Año lectivo de graduación
         anio: "2026",
 
-        // Selector de paleta visual:
-        // "inicial-pastel" | "primaria-azul-oro" | "secundaria-elegante"
+        // Selector de paleta visual y colores personalizados (4 colores HEX)
         paleta: "primaria-azul-oro",
+        paletaConfig: null,
 
         // Fotografía principal de la portada (Hero)
         portadaUrl: "",
@@ -1815,25 +1815,139 @@
           reelTimer: null
         };
 
-        const PALETA_THEME_COLORS = {
-          "inicial-pastel": "#b8583e",
-          "primaria-azul-oro": "#183a6e",
-          "secundaria-elegante": "#1d352b"
+        const PALETA_CONFIGS = {
+          "primaria-azul-oro": {
+            colorPrincipal: "#183a6e",
+            colorSecundario: "#edf2f8",
+            colorAcento: "#b47b1b",
+            colorTexto: "#142136"
+          },
+          "inicial-pastel": {
+            colorPrincipal: "#b8583e",
+            colorSecundario: "#f3ece4",
+            colorAcento: "#5b7f6b",
+            colorTexto: "#2d2522"
+          },
+          "secundaria-elegante": {
+            colorPrincipal: "#1d352b",
+            colorSecundario: "#eae7de",
+            colorAcento: "#987636",
+            colorTexto: "#171c19"
+          },
+          "gala-vino-marfil": {
+            colorPrincipal: "#6e1d36",
+            colorSecundario: "#f5ebe8",
+            colorAcento: "#c4933b",
+            colorTexto: "#26181d"
+          },
+          "jardin-cielo-menta": {
+            colorPrincipal: "#1c5d7d",
+            colorSecundario: "#e7f2f6",
+            colorAcento: "#2d8a68",
+            colorTexto: "#162a36"
+          }
         };
+
+        function isValidHex(val) {
+          return typeof val === "string" && /^#[0-9A-Fa-f]{6}$/.test(val.trim());
+        }
+
+        function hexToRgb(hex) {
+          const clean = String(hex || "#183a6e").trim().replace(/^#/, "");
+          return {
+            r: parseInt(clean.slice(0, 2), 16) || 0,
+            g: parseInt(clean.slice(2, 4), 16) || 0,
+            b: parseInt(clean.slice(4, 6), 16) || 0
+          };
+        }
+
+        function rgbToHex(r, g, b) {
+          const clamp = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+          return `#${clamp(r)}${clamp(g)}${clamp(b)}`;
+        }
+
+        function mixHex(hexA, hexB, weightA) {
+          const a = hexToRgb(hexA);
+          const b = hexToRgb(hexB);
+          const w = Math.max(0, Math.min(1, weightA));
+          return rgbToHex(a.r * w + b.r * (1 - w), a.g * w + b.g * (1 - w), a.b * w + b.b * (1 - w));
+        }
+
+        function rgbaFromHex(hex, alpha) {
+          const rgb = hexToRgb(hex);
+          return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${Math.max(0, Math.min(1, alpha))})`;
+        }
+
+        function getContrastTextColor(hex) {
+          const rgb = hexToRgb(hex);
+          const toLinear = (v) => {
+            const s = v / 255;
+            return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+          };
+          const lum = 0.2126 * toLinear(rgb.r) + 0.7152 * toLinear(rgb.g) + 0.0722 * toLinear(rgb.b);
+          return lum > 0.42 ? "#142136" : "#ffffff";
+        }
+
+        function resolveActivePaletteColors() {
+          const activePaleta = CONFIG.paleta || "primaria-azul-oro";
+          const fallback = PALETA_CONFIGS[activePaleta] || PALETA_CONFIGS["primaria-azul-oro"];
+          const cfg = CONFIG.paletaConfig;
+          if (
+            cfg &&
+            isValidHex(cfg.colorPrincipal) &&
+            isValidHex(cfg.colorSecundario) &&
+            isValidHex(cfg.colorAcento) &&
+            isValidHex(cfg.colorTexto)
+          ) {
+            return {
+              colorPrincipal: cfg.colorPrincipal.trim().toLowerCase(),
+              colorSecundario: cfg.colorSecundario.trim().toLowerCase(),
+              colorAcento: cfg.colorAcento.trim().toLowerCase(),
+              colorTexto: cfg.colorTexto.trim().toLowerCase()
+            };
+          }
+          return fallback;
+        }
 
         function applyTheme() {
           const activePaleta = CONFIG.paleta || "primaria-azul-oro";
-          document.documentElement.setAttribute("data-paleta", activePaleta);
+          const colors = resolveActivePaletteColors();
+          const root = document.documentElement;
+          root.setAttribute("data-paleta", activePaleta);
+
+          const cssVars = {
+            "--bg-canvas": mixHex(colors.colorSecundario, "#ffffff", 0.45),
+            "--bg-surface": "#ffffff",
+            "--bg-subtle": colors.colorSecundario,
+            "--text-primary": colors.colorTexto,
+            "--text-secondary": mixHex(colors.colorTexto, "#ffffff", 0.76),
+            "--text-muted": mixHex(colors.colorTexto, "#ffffff", 0.56),
+            "--accent": colors.colorPrincipal,
+            "--accent-hover": mixHex(colors.colorPrincipal, "#000000", 0.78),
+            "--accent-contrast": getContrastTextColor(colors.colorPrincipal),
+            "--accent-secondary": colors.colorAcento,
+            "--accent-tint": rgbaFromHex(colors.colorPrincipal, 0.09),
+            "--border-hairline": rgbaFromHex(colors.colorTexto, 0.11),
+            "--shadow-card": `0 6px 24px ${rgbaFromHex(colors.colorPrincipal, 0.08)}`,
+            "--shadow-modal": `0 24px 60px ${rgbaFromHex(colors.colorTexto, 0.36)}`,
+            "--hero-overlay": `linear-gradient(180deg, ${rgbaFromHex(colors.colorPrincipal, 0.06)} 0%, ${rgbaFromHex(colors.colorPrincipal, 0.48)} 100%)`
+          };
+
+          Object.keys(cssVars).forEach((key) => {
+            root.style.setProperty(key, cssVars[key]);
+          });
+
           document.title = `${CONFIG.promocion} · ${CONFIG.colegio}`;
 
           const metaThemeColor = document.getElementById("meta-theme-color");
           if (metaThemeColor) {
-            metaThemeColor.setAttribute("content", PALETA_THEME_COLORS[activePaleta] || "#183a6e");
+            metaThemeColor.setAttribute("content", colors.colorPrincipal);
           }
           const metaAppleTitle = document.getElementById("meta-apple-title");
           if (metaAppleTitle) {
             metaAppleTitle.setAttribute("content", `Álbum ${CONFIG.anio || "2026"}`);
           }
+          return colors;
         }
 
         applyTheme();
@@ -2506,7 +2620,8 @@
             CONFIG.promocion = payload.promocion || CONFIG.promocion;
             CONFIG.nivel = payload.nivel || CONFIG.nivel;
             CONFIG.anio = payload.anio || CONFIG.anio;
-            CONFIG.paleta = payload.paleta || CONFIG.paleta;
+            CONFIG.paleta = payload.paleta || "primaria-azul-oro";
+            CONFIG.paletaConfig = payload.paletaConfig || null;
             CONFIG.portadaUrl = payload.portadaUrl || "";
             CONFIG.musicaUrl = payload.musicaUrl || "";
             CONFIG.mensajeTutora = payload.mensajeTutora || CONFIG.mensajeTutora;
@@ -2521,12 +2636,12 @@
             state.categoriaActiva = "Todas";
             state.fotosFiltradas = [...CONFIG.fotos];
 
-            applyTheme();
+            const activeThemeColors = applyTheme();
             if (payload.accessToken && window.__updateDynamicPwaManifest) {
               window.__updateDynamicPwaManifest(payload.accessToken, {
                 title: `${CONFIG.promocion} · ${CONFIG.colegio}`,
                 shortTitle: `Álbum ${CONFIG.anio || "2026"}`,
-                themeColor: PALETA_THEME_COLORS[CONFIG.paleta] || "#183a6e"
+                themeColor: activeThemeColors.colorPrincipal
               });
             }
             renderHeaderAndHero();

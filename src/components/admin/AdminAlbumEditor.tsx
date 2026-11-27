@@ -6,7 +6,6 @@ import {
   Code2,
   ImagePlus,
   Music,
-  Palette,
   Plus,
   Save,
   ShieldCheck,
@@ -18,62 +17,79 @@ import {
 import {
   AnuarioDraftEntry,
   BLUEPRINT_LIMITS,
+  ColorPalette,
   DraftAlbum,
   DraftStudent,
   FotoItem,
   getYouTubeThumbnailUrl,
   NivelEducativo,
   PaletaVisual,
+  PaletteColors,
   parseAnuarioSnippet,
+  resolveAlbumPalette,
   slugify,
   VideoItem
 } from '../../types/album';
+import {
+  AdminPaletteManager,
+  PaletteAssignmentTarget
+} from './AdminPaletteManager';
 
 interface AdminAlbumEditorProps {
   album: DraftAlbum;
+  allAlbums: DraftAlbum[];
   students: DraftStudent[];
+  palettes: ColorPalette[];
   onSaveAlbum: (
     patch: Partial<
       Omit<DraftAlbum, 'id' | 'ownerUid' | 'createdAt' | 'updatedAt'>
     >
   ) => Promise<void>;
+  onAssignPaletteTargets: (
+    palette: ColorPalette,
+    target: PaletteAssignmentTarget
+  ) => Promise<void>;
+  onClearStudentPalette: (studentId: string) => Promise<void>;
   onSaveAnuario: (entries: AnuarioDraftEntry[]) => Promise<void>;
+  onSavePalette: (
+    input: {
+      codigo: string;
+      nombre: string;
+      descripcion?: string;
+      colorPrincipal: string;
+      colorSecundario: string;
+      colorAcento: string;
+      colorTexto: string;
+      activa: boolean;
+      esPredeterminada?: boolean;
+    },
+    options: {
+      mode: 'create' | 'edit';
+      assignedAlbumIds: string[];
+      allAlbumIds: string[];
+    }
+  ) => Promise<ColorPalette>;
+  onDeletePalette: (
+    paletteCode: string,
+    assignedAlbumIds: string[],
+    allAlbumIds: string[]
+  ) => Promise<void>;
   onNavigateAlumnos: () => void;
   onDeleteAlbum: () => Promise<void>;
   canDeleteAlbum: boolean;
 }
 
-const PALETA_OPTIONS: Array<{
-  value: PaletaVisual;
-  label: string;
-  desc: string;
-  swatch: string;
-}> = [
-  {
-    value: 'inicial-pastel',
-    label: 'Inicial Pastel',
-    desc: 'Terracota cálido y crema editorial',
-    swatch: '#b8583e'
-  },
-  {
-    value: 'primaria-azul-oro',
-    label: 'Primaria Azul & Oro',
-    desc: 'Azul marino académico con acento dorado',
-    swatch: '#183a6e'
-  },
-  {
-    value: 'secundaria-elegante',
-    label: 'Secundaria Elegante',
-    desc: 'Verde bosque profundo y arena cálida',
-    swatch: '#1d352b'
-  }
-];
-
 export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
   album,
+  allAlbums,
   students,
+  palettes,
   onSaveAlbum,
+  onAssignPaletteTargets,
+  onClearStudentPalette,
   onSaveAnuario,
+  onSavePalette,
+  onDeletePalette,
   onNavigateAlumnos,
   onDeleteAlbum,
   canDeleteAlbum
@@ -91,6 +107,9 @@ export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
   const [nivel, setNivel] = useState<NivelEducativo>(album.nivel);
   const [anio, setAnio] = useState(album.anio);
   const [paleta, setPaleta] = useState<PaletaVisual>(album.paleta);
+  const [paletaConfig, setPaletaConfig] = useState<PaletteColors | undefined>(
+    album.paletaConfig
+  );
   const [portadaUrl, setPortadaUrl] = useState(album.portadaUrl);
   const [musicaUrl, setMusicaUrl] = useState(album.musicaUrl);
 
@@ -121,6 +140,7 @@ export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
     setNivel(album.nivel);
     setAnio(album.anio);
     setPaleta(album.paleta);
+    setPaletaConfig(album.paletaConfig);
     setPortadaUrl(album.portadaUrl);
     setMusicaUrl(album.musicaUrl);
     setTutoraTitulo(album.tutoraTitulo);
@@ -133,6 +153,11 @@ export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
     setAnuarioDirty(false);
     setConfirmDelete(false);
   }, [album.id]);
+
+  useEffect(() => {
+    setPaleta(album.paleta);
+    setPaletaConfig(album.paletaConfig);
+  }, [album.paleta, album.paletaConfig]);
 
   useEffect(() => {
     if (!anuarioDirty) {
@@ -156,19 +181,46 @@ export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
     e.preventDefault();
     setSaving(true);
     try {
+      const resolved = resolveAlbumPalette(paleta, paletaConfig, palettes);
       await onSaveAlbum({
         colegio,
         promocion,
         slug: slugify(slug, BLUEPRINT_LIMITS.ALBUM_SLUG_MIN),
         nivel,
         anio,
-        paleta,
+        paleta: resolved.codigo,
+        paletaConfig: resolved.colors,
         portadaUrl,
         musicaUrl
       });
       showNotice('Datos del álbum guardados en borrador.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAssignPaletteTargets = async (
+    palette: ColorPalette,
+    target: PaletteAssignmentTarget
+  ) => {
+    if (target.scope === 'album') {
+      const colors: PaletteColors = {
+        colorPrincipal: palette.colorPrincipal,
+        colorSecundario: palette.colorSecundario,
+        colorAcento: palette.colorAcento,
+        colorTexto: palette.colorTexto
+      };
+      setPaleta(palette.codigo);
+      setPaletaConfig(colors);
+      await onAssignPaletteTargets(palette, target);
+      showNotice(`Paleta «${palette.nombre}» aplicada a ${album.colegio}.`);
+    } else {
+      await onAssignPaletteTargets(palette, target);
+      showNotice(
+        `Paleta «${palette.nombre}» aplicada a ${target.studentIds.length} ${
+          target.studentIds.length === 1 ? 'alumno(a)' : 'alumnos(as)'
+        } de ${album.colegio}.`
+      );
     }
   };
 
@@ -415,40 +467,22 @@ export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
             </div>
           </div>
 
-          {/* Paleta visual */}
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 mb-2">
-              <Palette className="w-3.5 h-3.5" />
-              Paleta visual del álbum público
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {PALETA_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setPaleta(opt.value)}
-                  className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
-                    paleta === opt.value
-                      ? 'border-[#183a6e] bg-slate-50'
-                      : 'border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <span
-                    className="w-5 h-5 rounded-md shrink-0 mt-0.5 border border-black/10"
-                    style={{ backgroundColor: opt.swatch }}
-                  />
-                  <div>
-                    <div className="text-xs font-semibold text-slate-900">
-                      {opt.label}
-                    </div>
-                    <div className="text-[11px] text-slate-500 leading-snug">
-                      {opt.desc}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Paleta visual administrable de 4 colores */}
+          <AdminPaletteManager
+            activeAlbum={album}
+            allAlbums={allAlbums}
+            students={students}
+            palettes={palettes}
+            selectedCodigo={paleta}
+            selectedColors={paletaConfig}
+            onAssignPalette={handleAssignPaletteTargets}
+            onClearStudentPalette={async (studentId) => {
+              await onClearStudentPalette(studentId);
+              showNotice('El alumno volverá a usar la paleta del colegio/evento.');
+            }}
+            onSavePalette={onSavePalette}
+            onDeletePalette={onDeletePalette}
+          />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>

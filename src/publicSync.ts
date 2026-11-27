@@ -5,7 +5,12 @@ import {
   fetchAlbumAccessByToken,
   fetchDraftPreviewForAdmin
 } from './services/albumService';
-import { FotoItem, isValidAccessToken, VideoItem } from './types/album';
+import {
+  FotoItem,
+  isValidAccessToken,
+  PaletteColors,
+  VideoItem
+} from './types/album';
 
 const SAVED_TOKEN_KEY = 'album_escolar_access_token';
 
@@ -48,6 +53,7 @@ export interface PublicBridgePayload {
   nivel: string;
   anio: string;
   paleta: string;
+  paletaConfig?: PaletteColors;
   portadaUrl: string;
   musicaUrl: string;
   mensajeTutora: {
@@ -111,6 +117,7 @@ export async function initPublicAlbumSync(): Promise<void> {
   void testConnection();
   const params = new URLSearchParams(window.location.search);
   const previewDraftId = params.get('previewDraft');
+  const previewStudentId = params.get('studentId');
   const urlToken = params.get('t');
 
   const bridge = await waitForBridge();
@@ -154,28 +161,41 @@ export async function initPublicAlbumSync(): Promise<void> {
           'No se encontró el álbum solicitado en el espacio de trabajo.'
         );
       } else {
+        const focusedStudent = previewStudentId
+          ? draft.students.find((s) => s.id === previewStudentId) || null
+          : null;
         const previewStudents = draft.album.allowGroupAnuario
           ? draft.students.map((s) => ({
               nombre: s.nombre,
               frase: s.frase,
               fotoUrl: s.fotoUrl
             }))
-          : draft.students[0]
+          : focusedStudent || draft.students[0]
             ? [
                 {
-                  nombre: draft.students[0].nombre,
-                  frase: draft.students[0].frase,
-                  fotoUrl: draft.students[0].fotoUrl
+                  nombre: (focusedStudent || draft.students[0]).nombre,
+                  frase: (focusedStudent || draft.students[0]).frase,
+                  fotoUrl: (focusedStudent || draft.students[0]).fotoUrl
                 }
               ]
             : [];
+
+        const effectivePaleta = focusedStudent?.paleta
+          ? focusedStudent.paleta
+          : draft.album.paleta;
+        const effectivePaletaConfig = focusedStudent?.paleta
+          ? focusedStudent.paletaConfig
+          : draft.album.paletaConfig;
+        const activePreviewStudent =
+          focusedStudent || (!draft.album.allowGroupAnuario ? draft.students[0] : null);
 
         bridge.applyAlbumData({
           colegio: draft.album.colegio,
           promocion: draft.album.promocion,
           nivel: draft.album.nivel,
           anio: draft.album.anio,
-          paleta: draft.album.paleta,
+          paleta: effectivePaleta,
+          paletaConfig: effectivePaletaConfig,
           portadaUrl: draft.album.portadaUrl,
           musicaUrl: draft.album.musicaUrl,
           mensajeTutora: {
@@ -188,14 +208,13 @@ export async function initPublicAlbumSync(): Promise<void> {
           fotos: draft.album.fotos,
           videos: draft.album.videos,
           alumnos: previewStudents,
-          activeStudent:
-            !draft.album.allowGroupAnuario && draft.students[0]
-              ? {
-                  nombre: draft.students[0].nombre,
-                  frase: draft.students[0].frase,
-                  fotoUrl: draft.students[0].fotoUrl
-                }
-              : null,
+          activeStudent: activePreviewStudent
+            ? {
+                nombre: activePreviewStudent.nombre,
+                frase: activePreviewStudent.frase,
+                fotoUrl: activePreviewStudent.fotoUrl
+              }
+            : null,
           isDraftPreview: true
         });
       }
@@ -237,6 +256,7 @@ export async function initPublicAlbumSync(): Promise<void> {
           nivel: docData.nivel,
           anio: docData.anio,
           paleta: docData.paleta,
+          paletaConfig: docData.paletaConfig,
           portadaUrl: docData.portadaUrl || '',
           musicaUrl: docData.musicaUrl || '',
           mensajeTutora: {

@@ -8,11 +8,12 @@ import {
   query,
   serverTimestamp,
   setDoc,
-  updateDoc,
+  Timestamp,
   where,
   writeBatch
 } from 'firebase/firestore';
 import {
+  auth,
   BOOTSTRAPPED_ADMIN_EMAIL,
   db,
   handleFirestoreError,
@@ -24,16 +25,285 @@ import {
   AnuarioDraftEntry,
   BLUEPRINT_LIMITS,
   clampStr,
+  ColorPalette,
+  DEFAULT_PALETTE_CODE,
+  DEFAULT_PALETTE_COLORS,
+  DEFAULT_PALETTES,
   DraftAlbum,
   DraftStudent,
   generateAccessToken,
   isValidAccessToken,
+  isValidHexColor,
+  PaletteColors,
   PublicStudentCard,
   PublishStatus,
+  resolveAlbumPalette,
   sanitizeFotoItem,
+  sanitizePaletteColors,
   sanitizeVideoItem,
   slugify
 } from '../types/album';
+
+function parsePaletteConfig(raw: unknown): PaletteColors | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Partial<PaletteColors>;
+  if (
+    isValidHexColor(obj.colorPrincipal) &&
+    isValidHexColor(obj.colorSecundario) &&
+    isValidHexColor(obj.colorAcento) &&
+    isValidHexColor(obj.colorTexto)
+  ) {
+    return sanitizePaletteColors(obj);
+  }
+  return undefined;
+}
+
+function getCurrentUidFallback(explicitUid?: string): string {
+  const candidate =
+    (typeof explicitUid === 'string' && explicitUid.trim()) ||
+    auth.currentUser?.uid ||
+    '';
+  return candidate.slice(0, 128) || 'admin';
+}
+
+function resolvePreservedOwnerUid(
+  existingData: Record<string, unknown> | undefined,
+  fallbackUid?: string
+): string {
+  if (
+    existingData &&
+    typeof existingData.ownerUid === 'string' &&
+    existingData.ownerUid.length >= 1 &&
+    existingData.ownerUid.length <= 128
+  ) {
+    return existingData.ownerUid;
+  }
+  return getCurrentUidFallback(fallbackUid);
+}
+
+function resolvePreservedCreatedAt(
+  existingData: Record<string, unknown> | undefined
+) {
+  return existingData?.createdAt instanceof Timestamp
+    ? existingData.createdAt
+    : serverTimestamp();
+}
+
+function buildNormalizedAlbumPayload(
+  albumId: string,
+  existingData: Record<string, unknown> | undefined,
+  fallbackUid: string | undefined,
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {
+    ...(existingData || {}),
+    ...overrides
+  };
+
+  const rawColegio = clampStr(
+    typeof merged.colegio === 'string' ? merged.colegio : '',
+    BLUEPRINT_LIMITS.COLEGIO_MAX
+  );
+  const safeColegio = rawColegio.length >= 2 ? rawColegio : 'Colegio';
+
+  const rawPromocion = clampStr(
+    typeof merged.promocion === 'string' ? merged.promocion : '',
+    BLUEPRINT_LIMITS.PROMOCION_MAX
+  );
+  const safePromocion =
+    rawPromocion.length >= 2 ? rawPromocion : 'Promoción Escolar';
+
+  const safeNivel =
+    merged.nivel === 'Inicial' ||
+    merged.nivel === 'Primaria' ||
+    merged.nivel === 'Secundaria'
+      ? merged.nivel
+      : 'Primaria';
+
+  const rawAnio = typeof merged.anio === 'string' ? merged.anio.trim() : '';
+  const safeAnio = BLUEPRINT_LIMITS.ANIO_REGEX.test(rawAnio) ? rawAnio : '2026';
+
+  const safeSlug = slugify(
+    typeof merged.slug === 'string' && merged.slug.trim()
+      ? merged.slug
+      : albumId,
+    BLUEPRINT_LIMITS.ALBUM_SLUG_MIN
+  );
+
+  const resolvedPaleta = resolveAlbumPalette(
+    typeof merged.paleta === 'string' ? merged.paleta : undefined,
+    parsePaletteConfig(merged.paletaConfig)
+  );
+
+  const rawFotos = Array.isArray(merged.fotos) ? merged.fotos : [];
+  const sanitizedFotos = rawFotos
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === 'object')
+    )
+    .slice(0, BLUEPRINT_LIMITS.FOTOS_MAX)
+    .map((item) =>
+      sanitizeFotoItem({
+        titulo: String(item.titulo || ''),
+        categoria: String(item.categoria || ''),
+        url: String(item.url || ''),
+        descargaUrl:
+          typeof item.descargaUrl === 'string' ? item.descargaUrl : undefined
+      })
+    );
+
+  const rawVideos = Array.isArray(merged.videos) ? merged.videos : [];
+  const sanitizedVideos = rawVideos
+    .filter((item): item is Record<string, unknown> =>
+      Boolean(item && typeof item === 'object')
+    )
+    .slice(0, BLUEPRINT_LIMITS.VIDEOS_MAX)
+    .map((item) =>
+      sanitizeVideoItem({
+        titulo: String(item.titulo || ''),
+        duracion: String(item.duracion || ''),
+        descripcion:
+          typeof item.descripcion === 'string' ? item.descripcion : undefined,
+        portadaUrl:
+          typeof item.portadaUrl === 'string' ? item.portadaUrl : undefined,
+        embedUrl: String(item.embedUrl || '')
+      })
+    );
+
+  const rawGeneralToken =
+    typeof merged.generalAccessToken === 'string'
+      ? merged.generalAccessToken
+      : '';
+
+  return {
+    slug: safeSlug,
+    colegio: safeColegio,
+    promocion: safePromocion,
+    nivel: safeNivel,
+    anio: safeAnio,
+    paleta: resolvedPaleta.codigo,
+    paletaConfig: resolvedPaleta.colors,
+    portadaUrl: clampStr(
+      typeof merged.portadaUrl === 'string' ? merged.portadaUrl : '',
+      BLUEPRINT_LIMITS.URL_MAX
+    ),
+    musicaUrl: clampStr(
+      typeof merged.musicaUrl === 'string' ? merged.musicaUrl : '',
+      BLUEPRINT_LIMITS.URL_MAX
+    ),
+    whatsappTexto: clampStr(
+      typeof merged.whatsappTexto === 'string' ? merged.whatsappTexto : '',
+      BLUEPRINT_LIMITS.WHATSAPP_MAX
+    ),
+    tutoraTitulo: clampStr(
+      typeof merged.tutoraTitulo === 'string' ? merged.tutoraTitulo : '',
+      BLUEPRINT_LIMITS.TUTORA_TITULO_MAX
+    ),
+    tutoraNombre: clampStr(
+      typeof merged.tutoraNombre === 'string' ? merged.tutoraNombre : '',
+      BLUEPRINT_LIMITS.TUTORA_NOMBRE_MAX
+    ),
+    tutoraCargo: clampStr(
+      typeof merged.tutoraCargo === 'string' ? merged.tutoraCargo : '',
+      BLUEPRINT_LIMITS.TUTORA_CARGO_MAX
+    ),
+    tutoraFotoUrl: clampStr(
+      typeof merged.tutoraFotoUrl === 'string' ? merged.tutoraFotoUrl : '',
+      BLUEPRINT_LIMITS.URL_MAX
+    ),
+    tutoraTexto: clampStr(
+      typeof merged.tutoraTexto === 'string' ? merged.tutoraTexto : '',
+      BLUEPRINT_LIMITS.TUTORA_TEXTO_MAX
+    ),
+    fotos: sanitizedFotos,
+    videos: sanitizedVideos,
+    allowGroupAnuario: Boolean(merged.allowGroupAnuario),
+    generalShareEnabled: Boolean(merged.generalShareEnabled),
+    generalAccessToken: isValidAccessToken(rawGeneralToken)
+      ? rawGeneralToken
+      : '',
+    generalTokenRevoked: Boolean(merged.generalTokenRevoked),
+    status: merged.status === 'publicado' ? 'publicado' : 'borrador',
+    ownerUid: resolvePreservedOwnerUid(existingData, fallbackUid),
+    hasUnpublishedChanges: Boolean(merged.hasUnpublishedChanges),
+    createdAt: resolvePreservedCreatedAt(existingData),
+    updatedAt: serverTimestamp()
+  };
+}
+
+function buildNormalizedStudentPayload(
+  albumId: string,
+  studentId: string,
+  existingData: Record<string, unknown> | undefined,
+  fallbackUid: string | undefined,
+  overrides: Record<string, unknown> & { clearPaleta?: boolean } = {}
+): Record<string, unknown> {
+  const { clearPaleta, ...restOverrides } = overrides;
+  const merged: Record<string, unknown> = {
+    ...(existingData || {}),
+    ...restOverrides
+  };
+
+  const rawNombre = clampStr(
+    typeof merged.nombre === 'string' ? merged.nombre : '',
+    BLUEPRINT_LIMITS.STUDENT_NAME_MAX
+  );
+  const safeNombre = rawNombre.length >= 2 ? rawNombre : 'Alumno';
+  const safeSlug = slugify(
+    typeof merged.slug === 'string' && merged.slug.trim()
+      ? merged.slug
+      : safeNombre || studentId,
+    BLUEPRINT_LIMITS.STUDENT_SLUG_MIN
+  );
+  const rawToken =
+    typeof merged.accessToken === 'string' ? merged.accessToken : '';
+  const safeToken = isValidAccessToken(rawToken)
+    ? rawToken
+    : generateAccessToken();
+  const safeOrder = Math.max(
+    0,
+    Math.min(BLUEPRINT_LIMITS.ORDER_MAX, Number(merged.order) || 0)
+  );
+
+  const payload: Record<string, unknown> = {
+    albumId,
+    slug: safeSlug,
+    nombre: safeNombre,
+    frase: clampStr(
+      typeof merged.frase === 'string' ? merged.frase : '',
+      BLUEPRINT_LIMITS.STUDENT_FRASE_MAX
+    ),
+    fotoUrl: clampStr(
+      typeof merged.fotoUrl === 'string' ? merged.fotoUrl : '',
+      BLUEPRINT_LIMITS.URL_MAX
+    ),
+    parentPhone: clampStr(
+      typeof merged.parentPhone === 'string' ? merged.parentPhone : '',
+      BLUEPRINT_LIMITS.PARENT_PHONE_MAX
+    ),
+    accessToken: safeToken,
+    tokenRevoked: Boolean(merged.tokenRevoked),
+    status: merged.status === 'borrador' ? 'borrador' : 'publicado',
+    order: safeOrder,
+    ownerUid: resolvePreservedOwnerUid(existingData, fallbackUid),
+    createdAt: resolvePreservedCreatedAt(existingData),
+    updatedAt: serverTimestamp()
+  };
+
+  if (
+    !clearPaleta &&
+    typeof merged.paleta === 'string' &&
+    merged.paleta.trim().length >= BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+  ) {
+    const resolved = resolveAlbumPalette(
+      merged.paleta,
+      parsePaletteConfig(merged.paletaConfig)
+    );
+    payload.paleta = resolved.codigo;
+    payload.paletaConfig = resolved.colors;
+  }
+
+  return payload;
+}
 
 export function isSuperAdminUser(
   email: string | null | undefined,
@@ -83,7 +353,8 @@ export function subscribeDraftAlbums(
           promocion: String(data.promocion || ''),
           nivel: (data.nivel as DraftAlbum['nivel']) || 'Primaria',
           anio: String(data.anio || '2026'),
-          paleta: (data.paleta as DraftAlbum['paleta']) || 'primaria-azul-oro',
+          paleta: (data.paleta as DraftAlbum['paleta']) || DEFAULT_PALETTE_CODE,
+          paletaConfig: parsePaletteConfig(data.paletaConfig),
           portadaUrl: String(data.portadaUrl || ''),
           musicaUrl: String(data.musicaUrl || ''),
           whatsappTexto: String(data.whatsappTexto || ''),
@@ -137,6 +408,11 @@ export function subscribeDraftStudents(
           frase: String(data.frase || ''),
           fotoUrl: String(data.fotoUrl || ''),
           parentPhone: String(data.parentPhone || ''),
+          paleta:
+            typeof data.paleta === 'string' && data.paleta.trim().length >= 3
+              ? data.paleta.trim()
+              : undefined,
+          paletaConfig: parsePaletteConfig(data.paletaConfig),
           accessToken: String(data.accessToken || ''),
           tokenRevoked: Boolean(data.tokenRevoked),
           status: (data.status as PublishStatus) || 'publicado',
@@ -153,6 +429,481 @@ export function subscribeDraftStudents(
       handleFirestoreError(error, OperationType.LIST, path);
     }
   );
+}
+
+export function subscribePalettes(
+  onData: (palettes: ColorPalette[]) => void,
+  onError?: (err: Error) => void
+): () => void {
+  const path = 'palettes';
+  const q = query(collection(db, 'palettes'));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const items: ColorPalette[] = snap.docs
+        .map((d) => {
+          const data = d.data();
+          const safeColors = sanitizePaletteColors({
+            colorPrincipal: String(data.colorPrincipal || ''),
+            colorSecundario: String(data.colorSecundario || ''),
+            colorAcento: String(data.colorAcento || ''),
+            colorTexto: String(data.colorTexto || '')
+          });
+          return {
+            codigo: String(data.codigo || d.id),
+            nombre: String(data.nombre || d.id),
+            descripcion: String(data.descripcion || ''),
+            ...safeColors,
+            activa: data.activa !== false,
+            esPredeterminada: Boolean(data.esPredeterminada),
+            ownerUid: String(data.ownerUid || ''),
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt
+          };
+        })
+        .sort((a, b) => {
+          if (a.esPredeterminada && !b.esPredeterminada) return -1;
+          if (!a.esPredeterminada && b.esPredeterminada) return 1;
+          return a.nombre.localeCompare(b.nombre, 'es');
+        });
+      onData(items);
+    },
+    (error) => {
+      if (onError) onError(error);
+      handleFirestoreError(error, OperationType.LIST, path);
+    }
+  );
+}
+
+export async function seedDefaultPalettes(ownerUid: string): Promise<void> {
+  const path = 'palettes';
+  try {
+    const existingSnap = await getDocs(collection(db, 'palettes'));
+    const existingIds = new Set(existingSnap.docs.map((d) => d.id));
+    const missing = DEFAULT_PALETTES.filter((p) => !existingIds.has(p.codigo));
+    if (missing.length === 0) return;
+
+    const batch = writeBatch(db);
+    missing.forEach((p) => {
+      batch.set(doc(db, 'palettes', p.codigo), {
+        codigo: p.codigo,
+        nombre: p.nombre,
+        descripcion: p.descripcion || '',
+        colorPrincipal: p.colorPrincipal,
+        colorSecundario: p.colorSecundario,
+        colorAcento: p.colorAcento,
+        colorTexto: p.colorTexto,
+        activa: p.activa,
+        esPredeterminada: Boolean(p.esPredeterminada),
+        ownerUid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function saveColorPalette(
+  ownerUid: string,
+  input: {
+    codigo: string;
+    nombre: string;
+    descripcion?: string;
+    colorPrincipal: string;
+    colorSecundario: string;
+    colorAcento: string;
+    colorTexto: string;
+    activa: boolean;
+    esPredeterminada?: boolean;
+  },
+  options: {
+    mode: 'create' | 'edit';
+    assignedAlbumIds?: string[];
+    allAlbumIds?: string[];
+  }
+): Promise<ColorPalette> {
+  const cleanCodigo = slugify(
+    input.codigo || input.nombre,
+    BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+  ).slice(0, BLUEPRINT_LIMITS.PALETTE_CODE_MAX);
+
+  if (
+    cleanCodigo.length < BLUEPRINT_LIMITS.PALETTE_CODE_MIN ||
+    !BLUEPRINT_LIMITS.SLUG_REGEX.test(cleanCodigo)
+  ) {
+    throw new Error(
+      'El código identificador debe tener al menos 3 caracteres válidos (minúsculas, números o guiones).'
+    );
+  }
+
+  const cleanNombre = clampStr(input.nombre, BLUEPRINT_LIMITS.PALETTE_NAME_MAX);
+  if (cleanNombre.length < BLUEPRINT_LIMITS.PALETTE_NAME_MIN) {
+    throw new Error('Ingresa un nombre válido para la paleta (mínimo 2 caracteres).');
+  }
+
+  if (
+    !isValidHexColor(input.colorPrincipal) ||
+    !isValidHexColor(input.colorSecundario) ||
+    !isValidHexColor(input.colorAcento) ||
+    !isValidHexColor(input.colorTexto)
+  ) {
+    throw new Error(
+      'Todos los colores deben tener formato HEX válido de 6 dígitos (ej. #183a6e).'
+    );
+  }
+
+  const cleanColors = sanitizePaletteColors(input);
+  const cleanDesc = clampStr(input.descripcion, BLUEPRINT_LIMITS.PALETTE_DESC_MAX);
+  const isDefaultCode = cleanCodigo === DEFAULT_PALETTE_CODE;
+  const path = `palettes/${cleanCodigo}`;
+  const paletteRef = doc(db, 'palettes', cleanCodigo);
+
+  try {
+    if (options.mode === 'create') {
+      const existingSnap = await getDoc(paletteRef);
+      if (existingSnap.exists()) {
+        throw new Error(
+          `Ya existe una paleta con el código identificador "${cleanCodigo}". Elige otro código único.`
+        );
+      }
+
+      const batch = writeBatch(db);
+      batch.set(paletteRef, {
+        codigo: cleanCodigo,
+        nombre: cleanNombre,
+        descripcion: cleanDesc,
+        colorPrincipal: cleanColors.colorPrincipal,
+        colorSecundario: cleanColors.colorSecundario,
+        colorAcento: cleanColors.colorAcento,
+        colorTexto: cleanColors.colorTexto,
+        activa: isDefaultCode ? true : Boolean(input.activa),
+        esPredeterminada: Boolean(input.esPredeterminada || isDefaultCode),
+        ownerUid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      await batch.commit();
+    } else {
+      const batch = writeBatch(db);
+      batch.update(paletteRef, {
+        nombre: cleanNombre,
+        descripcion: cleanDesc,
+        colorPrincipal: cleanColors.colorPrincipal,
+        colorSecundario: cleanColors.colorSecundario,
+        colorAcento: cleanColors.colorAcento,
+        colorTexto: cleanColors.colorTexto,
+        activa: isDefaultCode ? true : Boolean(input.activa),
+        esPredeterminada: Boolean(input.esPredeterminada || isDefaultCode),
+        updatedAt: serverTimestamp()
+      });
+
+      const touchedAlbums = new Set<string>();
+      const assignedSet = new Set(options.assignedAlbumIds || []);
+      const albumIdsToScan = Array.from(
+        new Set([...(options.allAlbumIds || []), ...(options.assignedAlbumIds || [])])
+      );
+
+      // Leer documentos de álbumes afectados para normalizarlos con set() y limpiar posibles campos heredados
+      const albumSnapsMap = new Map<
+        string,
+        Record<string, unknown> | undefined
+      >();
+      await Promise.all(
+        albumIdsToScan.map(async (albId) => {
+          const snap = await getDoc(doc(db, 'albums', albId));
+          if (snap.exists()) {
+            albumSnapsMap.set(albId, snap.data());
+          }
+        })
+      );
+
+      assignedSet.forEach((albumId) => {
+        touchedAlbums.add(albumId);
+        batch.set(
+          doc(db, 'albums', albumId),
+          buildNormalizedAlbumPayload(
+            albumId,
+            albumSnapsMap.get(albumId),
+            ownerUid,
+            {
+              paleta: cleanCodigo,
+              paletaConfig: cleanColors,
+              hasUnpublishedChanges: true
+            }
+          )
+        );
+      });
+
+      // Propagar colores actualizados a los alumnos que tienen esta paleta asignada individualmente
+      for (const albId of albumIdsToScan) {
+        const studentSnap = await getDocs(
+          query(
+            collection(db, 'albums', albId, 'students'),
+            where('paleta', '==', cleanCodigo)
+          )
+        );
+        if (!studentSnap.empty) {
+          studentSnap.docs.forEach((sd) => {
+            batch.set(
+              sd.ref,
+              buildNormalizedStudentPayload(albId, sd.id, sd.data(), ownerUid, {
+                paleta: cleanCodigo,
+                paletaConfig: cleanColors
+              })
+            );
+          });
+          if (!touchedAlbums.has(albId)) {
+            touchedAlbums.add(albId);
+            batch.set(
+              doc(db, 'albums', albId),
+              buildNormalizedAlbumPayload(
+                albId,
+                albumSnapsMap.get(albId),
+                ownerUid,
+                { hasUnpublishedChanges: true }
+              )
+            );
+          }
+        }
+      }
+
+      await batch.commit();
+    }
+
+    return {
+      codigo: cleanCodigo,
+      nombre: cleanNombre,
+      descripcion: cleanDesc,
+      ...cleanColors,
+      activa: isDefaultCode ? true : Boolean(input.activa),
+      esPredeterminada: Boolean(input.esPredeterminada || isDefaultCode),
+      ownerUid
+    };
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('Ya existe una paleta') ||
+        error.message.includes('HEX') ||
+        error.message.includes('nombre válido'))
+    ) {
+      throw error;
+    }
+    handleFirestoreError(
+      error,
+      options.mode === 'create' ? OperationType.CREATE : OperationType.UPDATE,
+      path
+    );
+  }
+}
+
+export async function deleteColorPalette(
+  paletteCode: string,
+  assignedAlbumIds: string[],
+  allAlbumIds: string[] = []
+): Promise<void> {
+  if (paletteCode === DEFAULT_PALETTE_CODE) {
+    throw new Error(
+      'La paleta predeterminada del sistema no puede eliminarse.'
+    );
+  }
+
+  const path = `palettes/${paletteCode}`;
+  const fallbackUid = getCurrentUidFallback();
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'palettes', paletteCode));
+
+    const touchedAlbums = new Set<string>();
+    const albumIdsToScan = Array.from(
+      new Set([...allAlbumIds, ...assignedAlbumIds])
+    );
+
+    const albumSnapsMap = new Map<string, Record<string, unknown> | undefined>();
+    await Promise.all(
+      albumIdsToScan.map(async (albId) => {
+        const snap = await getDoc(doc(db, 'albums', albId));
+        if (snap.exists()) {
+          albumSnapsMap.set(albId, snap.data());
+        }
+      })
+    );
+
+    // Reasignar los álbumes afectados a la paleta predeterminada sin alterar fotos, videos ni alumnos
+    assignedAlbumIds.forEach((albumId) => {
+      touchedAlbums.add(albumId);
+      batch.set(
+        doc(db, 'albums', albumId),
+        buildNormalizedAlbumPayload(
+          albumId,
+          albumSnapsMap.get(albumId),
+          fallbackUid,
+          {
+            paleta: DEFAULT_PALETTE_CODE,
+            paletaConfig: DEFAULT_PALETTE_COLORS,
+            hasUnpublishedChanges: true
+          }
+        )
+      );
+    });
+
+    // Limpiar asignación individual en alumnos que usaban esta paleta para que hereden la del álbum
+    for (const albId of albumIdsToScan) {
+      const studentSnap = await getDocs(
+        query(
+          collection(db, 'albums', albId, 'students'),
+          where('paleta', '==', paletteCode)
+        )
+      );
+      if (!studentSnap.empty) {
+        studentSnap.docs.forEach((sd) => {
+          batch.set(
+            sd.ref,
+            buildNormalizedStudentPayload(albId, sd.id, sd.data(), fallbackUid, {
+              clearPaleta: true
+            })
+          );
+        });
+        if (!touchedAlbums.has(albId)) {
+          touchedAlbums.add(albId);
+          batch.set(
+            doc(db, 'albums', albId),
+            buildNormalizedAlbumPayload(
+              albId,
+              albumSnapsMap.get(albId),
+              fallbackUid,
+              { hasUnpublishedChanges: true }
+            )
+          );
+        }
+      }
+    }
+
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function assignPaletteTargets(
+  albumId: string,
+  palette: ColorPalette,
+  target:
+    | { scope: 'album' }
+    | { scope: 'students'; studentIds: string[] }
+): Promise<void> {
+  let currentPath = `albums/${albumId}`;
+  const cleanCode = slugify(
+    palette.codigo,
+    BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+  ).slice(0, BLUEPRINT_LIMITS.PALETTE_CODE_MAX);
+  const cleanColors = sanitizePaletteColors(palette);
+  const fallbackUid = getCurrentUidFallback();
+
+  try {
+    if (target.scope === 'students' && target.studentIds.length === 0) {
+      throw new Error(
+        'Selecciona al menos una alumna o alumno para aplicar esta paleta.'
+      );
+    }
+
+    const albumRef = doc(db, 'albums', albumId);
+    const albumSnap = await getDoc(albumRef);
+    const existingAlbumData = albumSnap.exists() ? albumSnap.data() : undefined;
+
+    const batch = writeBatch(db);
+    if (target.scope === 'album') {
+      batch.set(
+        albumRef,
+        buildNormalizedAlbumPayload(albumId, existingAlbumData, fallbackUid, {
+          paleta: cleanCode,
+          paletaConfig: cleanColors,
+          hasUnpublishedChanges: true
+        })
+      );
+    } else {
+      const studentSnaps = await Promise.all(
+        target.studentIds.map((studentId) =>
+          getDoc(doc(db, 'albums', albumId, 'students', studentId))
+        )
+      );
+      studentSnaps.forEach((stSnap) => {
+        if (!stSnap.exists()) return;
+        batch.set(
+          stSnap.ref,
+          buildNormalizedStudentPayload(
+            albumId,
+            stSnap.id,
+            stSnap.data(),
+            fallbackUid,
+            {
+              paleta: cleanCode,
+              paletaConfig: cleanColors
+            }
+          )
+        );
+      });
+      batch.set(
+        albumRef,
+        buildNormalizedAlbumPayload(albumId, existingAlbumData, fallbackUid, {
+          hasUnpublishedChanges: true
+        })
+      );
+    }
+    await batch.commit();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('Selecciona al menos')
+    ) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.UPDATE, currentPath);
+  }
+}
+
+export async function clearStudentPaletteOverride(
+  albumId: string,
+  studentId: string
+): Promise<void> {
+  const path = `albums/${albumId}/students/${studentId}`;
+  const fallbackUid = getCurrentUidFallback();
+  try {
+    const albumRef = doc(db, 'albums', albumId);
+    const studentRef = doc(db, 'albums', albumId, 'students', studentId);
+    const [albumSnap, studentSnap] = await Promise.all([
+      getDoc(albumRef),
+      getDoc(studentRef)
+    ]);
+
+    const batch = writeBatch(db);
+    if (studentSnap.exists()) {
+      batch.set(
+        studentRef,
+        buildNormalizedStudentPayload(
+          albumId,
+          studentId,
+          studentSnap.data(),
+          fallbackUid,
+          { clearPaleta: true }
+        )
+      );
+    }
+    batch.set(
+      albumRef,
+      buildNormalizedAlbumPayload(
+        albumId,
+        albumSnap.exists() ? albumSnap.data() : undefined,
+        fallbackUid,
+        { hasUnpublishedChanges: true }
+      )
+    );
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
 }
 
 export async function seedDefaultAlbum(ownerUid: string): Promise<string> {
@@ -173,6 +924,7 @@ export async function seedDefaultAlbum(ownerUid: string): Promise<string> {
       nivel: seed.nivel,
       anio: seed.anio,
       paleta: seed.paleta,
+      paletaConfig: seed.paletaConfig,
       portadaUrl: seed.portadaUrl,
       musicaUrl: seed.musicaUrl,
       whatsappTexto: seed.whatsappTexto,
@@ -231,6 +983,7 @@ export async function seedDefaultAlbum(ownerUid: string): Promise<string> {
         nivel: seed.nivel,
         anio: seed.anio,
         paleta: seed.paleta,
+        paletaConfig: seed.paletaConfig,
         portadaUrl: seed.portadaUrl,
         musicaUrl: seed.musicaUrl,
         tutoraTitulo: seed.tutoraTitulo,
@@ -266,6 +1019,7 @@ export async function createDraftAlbum(
     nivel: DraftAlbum['nivel'];
     anio: string;
     paleta: DraftAlbum['paleta'];
+    paletaConfig?: PaletteColors;
     slug?: string;
   }
 ): Promise<string> {
@@ -282,6 +1036,10 @@ export async function createDraftAlbum(
   const anio = BLUEPRINT_LIMITS.ANIO_REGEX.test(input.anio)
     ? input.anio
     : '2026';
+  const resolvedPaleta = resolveAlbumPalette(
+    input.paleta,
+    input.paletaConfig
+  );
 
   const path = `albums/${albumId}`;
   try {
@@ -295,7 +1053,8 @@ export async function createDraftAlbum(
         `Promoción ${anio}`,
       nivel: input.nivel,
       anio,
-      paleta: input.paleta,
+      paleta: resolvedPaleta.codigo,
+      paletaConfig: resolvedPaleta.colors,
       portadaUrl: '/src/assets/images/hero_promocion_1795554401911.jpg',
       musicaUrl: '',
       whatsappTexto:
@@ -331,8 +1090,7 @@ export async function updateDraftAlbum(
   >
 ): Promise<void> {
   const path = `albums/${albumId}`;
-  const payload: Record<string, unknown> = {
-    updatedAt: serverTimestamp(),
+  const overrides: Record<string, unknown> = {
     hasUnpublishedChanges:
       patch.hasUnpublishedChanges !== undefined
         ? patch.hasUnpublishedChanges
@@ -340,93 +1098,111 @@ export async function updateDraftAlbum(
   };
 
   if (patch.slug !== undefined) {
-    payload.slug = slugify(patch.slug, BLUEPRINT_LIMITS.ALBUM_SLUG_MIN);
+    overrides.slug = slugify(patch.slug, BLUEPRINT_LIMITS.ALBUM_SLUG_MIN);
   }
   if (patch.colegio !== undefined) {
-    payload.colegio =
+    overrides.colegio =
       clampStr(patch.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX) || 'Colegio';
   }
   if (patch.promocion !== undefined) {
-    payload.promocion =
+    overrides.promocion =
       clampStr(patch.promocion, BLUEPRINT_LIMITS.PROMOCION_MAX) || 'Promoción';
   }
-  if (patch.nivel !== undefined) payload.nivel = patch.nivel;
+  if (patch.nivel !== undefined) overrides.nivel = patch.nivel;
   if (patch.anio !== undefined) {
-    payload.anio = BLUEPRINT_LIMITS.ANIO_REGEX.test(patch.anio)
+    overrides.anio = BLUEPRINT_LIMITS.ANIO_REGEX.test(patch.anio)
       ? patch.anio
       : '2026';
   }
-  if (patch.paleta !== undefined) payload.paleta = patch.paleta;
+  if (patch.paleta !== undefined) {
+    overrides.paleta = slugify(
+      patch.paleta,
+      BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+    ).slice(0, BLUEPRINT_LIMITS.PALETTE_CODE_MAX);
+  }
+  if (patch.paletaConfig !== undefined) {
+    overrides.paletaConfig = sanitizePaletteColors(patch.paletaConfig);
+  }
   if (patch.portadaUrl !== undefined) {
-    payload.portadaUrl = clampStr(patch.portadaUrl, BLUEPRINT_LIMITS.URL_MAX);
+    overrides.portadaUrl = clampStr(patch.portadaUrl, BLUEPRINT_LIMITS.URL_MAX);
   }
   if (patch.musicaUrl !== undefined) {
-    payload.musicaUrl = clampStr(patch.musicaUrl, BLUEPRINT_LIMITS.URL_MAX);
+    overrides.musicaUrl = clampStr(patch.musicaUrl, BLUEPRINT_LIMITS.URL_MAX);
   }
   if (patch.whatsappTexto !== undefined) {
-    payload.whatsappTexto = clampStr(
+    overrides.whatsappTexto = clampStr(
       patch.whatsappTexto,
       BLUEPRINT_LIMITS.WHATSAPP_MAX
     );
   }
   if (patch.tutoraTitulo !== undefined) {
-    payload.tutoraTitulo = clampStr(
+    overrides.tutoraTitulo = clampStr(
       patch.tutoraTitulo,
       BLUEPRINT_LIMITS.TUTORA_TITULO_MAX
     );
   }
   if (patch.tutoraNombre !== undefined) {
-    payload.tutoraNombre = clampStr(
+    overrides.tutoraNombre = clampStr(
       patch.tutoraNombre,
       BLUEPRINT_LIMITS.TUTORA_NOMBRE_MAX
     );
   }
   if (patch.tutoraCargo !== undefined) {
-    payload.tutoraCargo = clampStr(
+    overrides.tutoraCargo = clampStr(
       patch.tutoraCargo,
       BLUEPRINT_LIMITS.TUTORA_CARGO_MAX
     );
   }
   if (patch.tutoraFotoUrl !== undefined) {
-    payload.tutoraFotoUrl = clampStr(
+    overrides.tutoraFotoUrl = clampStr(
       patch.tutoraFotoUrl,
       BLUEPRINT_LIMITS.URL_MAX
     );
   }
   if (patch.tutoraTexto !== undefined) {
-    payload.tutoraTexto = clampStr(
+    overrides.tutoraTexto = clampStr(
       patch.tutoraTexto,
       BLUEPRINT_LIMITS.TUTORA_TEXTO_MAX
     );
   }
   if (patch.fotos !== undefined) {
-    payload.fotos = patch.fotos
+    overrides.fotos = patch.fotos
       .slice(0, BLUEPRINT_LIMITS.FOTOS_MAX)
       .map(sanitizeFotoItem);
   }
   if (patch.videos !== undefined) {
-    payload.videos = patch.videos
+    overrides.videos = patch.videos
       .slice(0, BLUEPRINT_LIMITS.VIDEOS_MAX)
       .map(sanitizeVideoItem);
   }
   if (patch.allowGroupAnuario !== undefined) {
-    payload.allowGroupAnuario = Boolean(patch.allowGroupAnuario);
+    overrides.allowGroupAnuario = Boolean(patch.allowGroupAnuario);
   }
   if (patch.generalShareEnabled !== undefined) {
-    payload.generalShareEnabled = Boolean(patch.generalShareEnabled);
+    overrides.generalShareEnabled = Boolean(patch.generalShareEnabled);
   }
   if (patch.generalAccessToken !== undefined) {
-    payload.generalAccessToken = isValidAccessToken(patch.generalAccessToken)
+    overrides.generalAccessToken = isValidAccessToken(patch.generalAccessToken)
       ? patch.generalAccessToken
       : '';
   }
   if (patch.generalTokenRevoked !== undefined) {
-    payload.generalTokenRevoked = Boolean(patch.generalTokenRevoked);
+    overrides.generalTokenRevoked = Boolean(patch.generalTokenRevoked);
   }
-  if (patch.status !== undefined) payload.status = patch.status;
+  if (patch.status !== undefined) overrides.status = patch.status;
 
   try {
-    await updateDoc(doc(db, 'albums', albumId), payload);
+    const albumRef = doc(db, 'albums', albumId);
+    const albumSnap = await getDoc(albumRef);
+    await setDoc(
+      albumRef,
+      buildNormalizedAlbumPayload(
+        albumId,
+        albumSnap.exists() ? albumSnap.data() : undefined,
+        getCurrentUidFallback(),
+        overrides
+      )
+    );
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -442,6 +1218,8 @@ export async function upsertDraftStudent(
     frase: string;
     fotoUrl: string;
     parentPhone: string;
+    paleta?: string | null;
+    paletaConfig?: PaletteColors;
     accessToken?: string;
     tokenRevoked?: boolean;
     status: PublishStatus;
@@ -466,14 +1244,25 @@ export async function upsertDraftStudent(
     const batch = writeBatch(db);
     const studentRef = doc(db, 'albums', albumId, 'students', targetId);
     const albumRef = doc(db, 'albums', albumId);
+    const [albumSnap, existingStudentSnap] = await Promise.all([
+      getDoc(albumRef),
+      studentId ? getDoc(studentRef) : Promise.resolve(null)
+    ]);
 
     const safeOrder = Math.max(
       0,
       Math.min(BLUEPRINT_LIMITS.ORDER_MAX, Number(input.order) || 0)
     );
 
+    const hasCustomPalette =
+      typeof input.paleta === 'string' &&
+      input.paleta.trim().length >= BLUEPRINT_LIMITS.PALETTE_CODE_MIN;
+    const resolvedStudentPalette = hasCustomPalette
+      ? resolveAlbumPalette(input.paleta as string, input.paletaConfig)
+      : null;
+
     if (studentId) {
-      batch.update(studentRef, {
+      const overrides: Record<string, unknown> & { clearPaleta?: boolean } = {
         slug: cleanSlug,
         nombre: cleanNombre,
         frase: clampStr(input.frase, BLUEPRINT_LIMITS.STUDENT_FRASE_MAX),
@@ -485,11 +1274,28 @@ export async function upsertDraftStudent(
         accessToken: safeToken,
         tokenRevoked: Boolean(input.tokenRevoked),
         status: input.status,
-        order: safeOrder,
-        updatedAt: serverTimestamp()
-      });
+        order: safeOrder
+      };
+      if (resolvedStudentPalette) {
+        overrides.paleta = resolvedStudentPalette.codigo;
+        overrides.paletaConfig = resolvedStudentPalette.colors;
+      } else if (input.paleta === null || input.paleta === '') {
+        overrides.clearPaleta = true;
+      }
+      batch.set(
+        studentRef,
+        buildNormalizedStudentPayload(
+          albumId,
+          targetId,
+          existingStudentSnap?.exists()
+            ? existingStudentSnap.data()
+            : undefined,
+          ownerUid,
+          overrides
+        )
+      );
     } else {
-      batch.set(studentRef, {
+      const createPayload: Record<string, unknown> = {
         albumId,
         slug: cleanSlug,
         nombre: cleanNombre,
@@ -506,13 +1312,23 @@ export async function upsertDraftStudent(
         ownerUid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      });
+      };
+      if (resolvedStudentPalette) {
+        createPayload.paleta = resolvedStudentPalette.codigo;
+        createPayload.paletaConfig = resolvedStudentPalette.colors;
+      }
+      batch.set(studentRef, createPayload);
     }
 
-    batch.update(albumRef, {
-      hasUnpublishedChanges: true,
-      updatedAt: serverTimestamp()
-    });
+    batch.set(
+      albumRef,
+      buildNormalizedAlbumPayload(
+        albumId,
+        albumSnap.exists() ? albumSnap.data() : undefined,
+        ownerUid,
+        { hasUnpublishedChanges: true }
+      )
+    );
 
     await batch.commit();
     return targetId;
@@ -577,10 +1393,17 @@ export async function batchImportStudents(
       });
     });
 
-    batch.update(doc(db, 'albums', albumId), {
-      hasUnpublishedChanges: true,
-      updatedAt: serverTimestamp()
-    });
+    const albumRef = doc(db, 'albums', albumId);
+    const albumSnap = await getDoc(albumRef);
+    batch.set(
+      albumRef,
+      buildNormalizedAlbumPayload(
+        albumId,
+        albumSnap.exists() ? albumSnap.data() : undefined,
+        ownerUid,
+        { hasUnpublishedChanges: true }
+      )
+    );
 
     await batch.commit();
     return lines.length;
@@ -602,6 +1425,15 @@ export async function syncAnuarioEntries(
   );
 
   try {
+    const albumRef = doc(db, 'albums', albumId);
+    const [albumSnap, currentStudentsSnap] = await Promise.all([
+      getDoc(albumRef),
+      getDocs(collection(db, 'albums', albumId, 'students'))
+    ]);
+    const rawStudentDataMap = new Map(
+      currentStudentsSnap.docs.map((d) => [d.id, d.data()])
+    );
+
     const batch = writeBatch(db);
 
     // Eliminar alumnos quitados del anuario (y su token publicado si existe)
@@ -631,18 +1463,28 @@ export async function syncAnuarioEntries(
         const safeToken = isValidAccessToken(existing.accessToken)
           ? existing.accessToken
           : generateAccessToken();
-        batch.update(doc(db, 'albums', albumId, 'students', existing.id), {
-          slug: existing.slug || slugify(cleanNombre, BLUEPRINT_LIMITS.STUDENT_SLUG_MIN),
-          nombre: cleanNombre,
-          frase: cleanFrase,
-          fotoUrl: cleanFotoUrl,
-          parentPhone: existing.parentPhone || '',
-          accessToken: safeToken,
-          tokenRevoked: Boolean(existing.tokenRevoked),
-          status: existing.status || 'publicado',
-          order: safeOrder,
-          updatedAt: serverTimestamp()
-        });
+        batch.set(
+          doc(db, 'albums', albumId, 'students', existing.id),
+          buildNormalizedStudentPayload(
+            albumId,
+            existing.id,
+            rawStudentDataMap.get(existing.id),
+            ownerUid,
+            {
+              slug:
+                existing.slug ||
+                slugify(cleanNombre, BLUEPRINT_LIMITS.STUDENT_SLUG_MIN),
+              nombre: cleanNombre,
+              frase: cleanFrase,
+              fotoUrl: cleanFotoUrl,
+              parentPhone: existing.parentPhone || '',
+              accessToken: safeToken,
+              tokenRevoked: Boolean(existing.tokenRevoked),
+              status: existing.status || 'publicado',
+              order: safeOrder
+            }
+          )
+        );
       } else {
         const cleanSlug = slugify(cleanNombre, BLUEPRINT_LIMITS.STUDENT_SLUG_MIN);
         const studentId = `${cleanSlug}-${Math.random().toString(36).slice(2, 5)}`.slice(
@@ -667,10 +1509,15 @@ export async function syncAnuarioEntries(
       }
     });
 
-    batch.update(doc(db, 'albums', albumId), {
-      hasUnpublishedChanges: true,
-      updatedAt: serverTimestamp()
-    });
+    batch.set(
+      albumRef,
+      buildNormalizedAlbumPayload(
+        albumId,
+        albumSnap.exists() ? albumSnap.data() : undefined,
+        ownerUid,
+        { hasUnpublishedChanges: true }
+      )
+    );
 
     await batch.commit();
   } catch (error) {
@@ -684,15 +1531,22 @@ export async function deleteDraftStudent(
 ): Promise<void> {
   const path = `albums/${albumId}/students/${student.id}`;
   try {
+    const albumRef = doc(db, 'albums', albumId);
+    const albumSnap = await getDoc(albumRef);
     const batch = writeBatch(db);
     batch.delete(doc(db, 'albums', albumId, 'students', student.id));
     if (isValidAccessToken(student.accessToken)) {
       batch.delete(doc(db, 'albumAccess', student.accessToken));
     }
-    batch.update(doc(db, 'albums', albumId), {
-      hasUnpublishedChanges: true,
-      updatedAt: serverTimestamp()
-    });
+    batch.set(
+      albumRef,
+      buildNormalizedAlbumPayload(
+        albumId,
+        albumSnap.exists() ? albumSnap.data() : undefined,
+        getCurrentUidFallback(),
+        { hasUnpublishedChanges: true }
+      )
+    );
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
@@ -711,12 +1565,22 @@ export async function setStudentTokenRevocation(
     : generateAccessToken();
 
   try {
+    const studentRef = doc(db, 'albums', album.id, 'students', student.id);
+    const studentSnap = await getDoc(studentRef);
     const batch = writeBatch(db);
-    batch.update(doc(db, 'albums', album.id, 'students', student.id), {
-      accessToken: validToken,
-      tokenRevoked: revoked,
-      updatedAt: serverTimestamp()
-    });
+    batch.set(
+      studentRef,
+      buildNormalizedStudentPayload(
+        album.id,
+        student.id,
+        studentSnap.exists() ? studentSnap.data() : undefined,
+        publisherUid,
+        {
+          accessToken: validToken,
+          tokenRevoked: revoked
+        }
+      )
+    );
 
     if (isValidAccessToken(student.accessToken)) {
       const accessRef = doc(db, 'albumAccess', student.accessToken);
@@ -746,12 +1610,22 @@ export async function regenerateStudentToken(
   const path = `albums/${album.id}/students/${targetStudent.id}`;
 
   try {
+    const studentRef = doc(db, 'albums', album.id, 'students', targetStudent.id);
+    const studentSnap = await getDoc(studentRef);
     const batch = writeBatch(db);
-    batch.update(doc(db, 'albums', album.id, 'students', targetStudent.id), {
-      accessToken: newToken,
-      tokenRevoked: false,
-      updatedAt: serverTimestamp()
-    });
+    batch.set(
+      studentRef,
+      buildNormalizedStudentPayload(
+        album.id,
+        targetStudent.id,
+        studentSnap.exists() ? studentSnap.data() : undefined,
+        publisherUid,
+        {
+          accessToken: newToken,
+          tokenRevoked: false
+        }
+      )
+    );
 
     if (isValidAccessToken(targetStudent.accessToken)) {
       batch.delete(doc(db, 'albumAccess', targetStudent.accessToken));
@@ -770,19 +1644,42 @@ export async function regenerateStudentToken(
             }))
         : [];
 
+      const resolvedAlbumPaleta = resolveAlbumPalette(
+        album.paleta,
+        album.paletaConfig
+      );
+      const effectiveStudentPaleta = targetStudent.paleta
+        ? resolveAlbumPalette(targetStudent.paleta, targetStudent.paletaConfig)
+        : resolvedAlbumPaleta;
+      const rawColegio = clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX);
+      const rawPromocion = clampStr(
+        album.promocion,
+        BLUEPRINT_LIMITS.PROMOCION_MAX
+      );
+      const safeNivel =
+        album.nivel === 'Inicial' ||
+        album.nivel === 'Primaria' ||
+        album.nivel === 'Secundaria'
+          ? album.nivel
+          : 'Primaria';
+      const rawNombre = clampStr(
+        targetStudent.nombre,
+        BLUEPRINT_LIMITS.STUDENT_NAME_MAX
+      );
+
       batch.set(doc(db, 'albumAccess', newToken), {
         albumId: album.id,
         scope: 'student',
         albumStatus: album.status,
         studentStatus: targetStudent.status,
         revoked: false,
-        colegio: clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX) || 'Colegio',
+        colegio: rawColegio.length >= 2 ? rawColegio : 'Colegio',
         promocion:
-          clampStr(album.promocion, BLUEPRINT_LIMITS.PROMOCION_MAX) ||
-          'Promoción',
-        nivel: album.nivel,
+          rawPromocion.length >= 2 ? rawPromocion : 'Promoción Escolar',
+        nivel: safeNivel,
         anio: BLUEPRINT_LIMITS.ANIO_REGEX.test(album.anio) ? album.anio : '2026',
-        paleta: album.paleta,
+        paleta: effectiveStudentPaleta.codigo,
+        paletaConfig: effectiveStudentPaleta.colors,
         portadaUrl: clampStr(album.portadaUrl, BLUEPRINT_LIMITS.URL_MAX),
         musicaUrl: clampStr(album.musicaUrl, BLUEPRINT_LIMITS.URL_MAX),
         tutoraTitulo: clampStr(
@@ -809,9 +1706,7 @@ export async function regenerateStudentToken(
           .slice(0, BLUEPRINT_LIMITS.VIDEOS_MAX)
           .map(sanitizeVideoItem),
         student: {
-          nombre:
-            clampStr(targetStudent.nombre, BLUEPRINT_LIMITS.STUDENT_NAME_MAX) ||
-            'Egresado',
+          nombre: rawNombre.length >= 2 ? rawNombre : 'Egresado',
           frase: clampStr(
             targetStudent.frase,
             BLUEPRINT_LIMITS.STUDENT_FRASE_MAX
@@ -841,12 +1736,21 @@ export async function regenerateGeneralAlbumToken(
   const path = `albums/${album.id}`;
 
   try {
+    const albumRef = doc(db, 'albums', album.id);
+    const albumSnap = await getDoc(albumRef);
     const batch = writeBatch(db);
-    batch.update(doc(db, 'albums', album.id), {
-      generalAccessToken: newToken,
-      generalTokenRevoked: false,
-      updatedAt: serverTimestamp()
-    });
+    batch.set(
+      albumRef,
+      buildNormalizedAlbumPayload(
+        album.id,
+        albumSnap.exists() ? albumSnap.data() : undefined,
+        publisherUid,
+        {
+          generalAccessToken: newToken,
+          generalTokenRevoked: false
+        }
+      )
+    );
 
     if (isValidAccessToken(oldToken)) {
       batch.delete(doc(db, 'albumAccess', oldToken));
@@ -856,14 +1760,30 @@ export async function regenerateGeneralAlbumToken(
       const anuarioCards: PublicStudentCard[] = album.allowGroupAnuario
         ? students
             .filter((s) => s.status === 'publicado' && !s.tokenRevoked)
-            .map((s) => ({
-              nombre:
-                clampStr(s.nombre, BLUEPRINT_LIMITS.STUDENT_NAME_MAX) ||
-                'Egresado',
-              frase: clampStr(s.frase, BLUEPRINT_LIMITS.STUDENT_FRASE_MAX),
-              fotoUrl: clampStr(s.fotoUrl, BLUEPRINT_LIMITS.URL_MAX)
-            }))
+            .map((s) => {
+              const nm = clampStr(s.nombre, BLUEPRINT_LIMITS.STUDENT_NAME_MAX);
+              return {
+                nombre: nm.length >= 2 ? nm : 'Egresado',
+                frase: clampStr(s.frase, BLUEPRINT_LIMITS.STUDENT_FRASE_MAX),
+                fotoUrl: clampStr(s.fotoUrl, BLUEPRINT_LIMITS.URL_MAX)
+              };
+            })
         : [];
+      const resolvedPaleta = resolveAlbumPalette(
+        album.paleta,
+        album.paletaConfig
+      );
+      const rawColegio = clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX);
+      const rawPromocion = clampStr(
+        album.promocion,
+        BLUEPRINT_LIMITS.PROMOCION_MAX
+      );
+      const safeNivel =
+        album.nivel === 'Inicial' ||
+        album.nivel === 'Primaria' ||
+        album.nivel === 'Secundaria'
+          ? album.nivel
+          : 'Primaria';
 
       batch.set(doc(db, 'albumAccess', newToken), {
         albumId: album.id,
@@ -871,13 +1791,13 @@ export async function regenerateGeneralAlbumToken(
         albumStatus: album.status,
         studentStatus: album.status,
         revoked: false,
-        colegio: clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX) || 'Colegio',
+        colegio: rawColegio.length >= 2 ? rawColegio : 'Colegio',
         promocion:
-          clampStr(album.promocion, BLUEPRINT_LIMITS.PROMOCION_MAX) ||
-          'Promoción',
-        nivel: album.nivel,
+          rawPromocion.length >= 2 ? rawPromocion : 'Promoción Escolar',
+        nivel: safeNivel,
         anio: BLUEPRINT_LIMITS.ANIO_REGEX.test(album.anio) ? album.anio : '2026',
-        paleta: album.paleta,
+        paleta: resolvedPaleta.codigo,
+        paletaConfig: resolvedPaleta.colors,
         portadaUrl: clampStr(album.portadaUrl, BLUEPRINT_LIMITS.URL_MAX),
         musicaUrl: clampStr(album.musicaUrl, BLUEPRINT_LIMITS.URL_MAX),
         tutoraTitulo: clampStr(
@@ -948,14 +1868,47 @@ export async function publishAlbumSnapshot(
   const generalToken = isValidAccessToken(album.generalAccessToken)
     ? album.generalAccessToken
     : generateAccessToken();
+  const resolvedPaleta = resolveAlbumPalette(album.paleta, album.paletaConfig);
+  const rawColegio = clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX);
+  const safeColegio = rawColegio.length >= 2 ? rawColegio : 'Colegio';
+  const rawPromocion = clampStr(album.promocion, BLUEPRINT_LIMITS.PROMOCION_MAX);
+  const safePromocion =
+    rawPromocion.length >= 2 ? rawPromocion : 'Promoción Escolar';
+  const safeNivel =
+    album.nivel === 'Inicial' ||
+    album.nivel === 'Primaria' ||
+    album.nivel === 'Secundaria'
+      ? album.nivel
+      : 'Primaria';
+  const safeAnio = BLUEPRINT_LIMITS.ANIO_REGEX.test(album.anio)
+    ? album.anio
+    : '2026';
+
+  const normalizePublicName = (name: string | undefined | null) => {
+    const clamped = clampStr(name, BLUEPRINT_LIMITS.STUDENT_NAME_MAX);
+    return clamped.length >= 2 ? clamped : 'Egresado';
+  };
+
+  let currentPath = path;
 
   try {
-    const existingTokensSnap = await getDocs(
-      query(collection(db, 'albumAccess'), where('albumId', '==', album.id))
-    );
+    // 0. Leer documento actual para preservar ownerUid/createdAt válidos y limpiar cualquier campo heredado
+    const albumSnap = await getDoc(doc(db, 'albums', album.id));
+    const existingAlbumData = albumSnap.exists() ? albumSnap.data() : undefined;
+    const safeOwnerUid = albumSnap.exists()
+      ? resolvePreservedOwnerUid(existingAlbumData, publisherUid)
+      : publisherUid;
+    const safeCreatedAt =
+      albumSnap.exists() && existingAlbumData?.createdAt instanceof Timestamp
+        ? existingAlbumData.createdAt
+        : serverTimestamp();
 
     const preparedStudents = students.map((st) => ({
       ...st,
+      safeStatus: (st.status === 'borrador'
+        ? 'borrador'
+        : 'publicado') as PublishStatus,
+      safeNombre: normalizePublicName(st.nombre),
       safeToken: isValidAccessToken(st.accessToken)
         ? st.accessToken
         : generateAccessToken()
@@ -968,13 +1921,99 @@ export async function publishAlbumSnapshot(
       .slice(0, BLUEPRINT_LIMITS.VIDEOS_MAX)
       .map(sanitizeVideoItem);
 
+    // 1. Guardar y normalizar el documento del álbum primero (cumple isValidDraftAlbum sin campos obsoletos)
+    currentPath = `albums/${album.id}`;
+    await setDoc(doc(db, 'albums', album.id), {
+      slug: cleanSlug,
+      colegio: safeColegio,
+      promocion: safePromocion,
+      nivel: safeNivel,
+      anio: safeAnio,
+      paleta: resolvedPaleta.codigo,
+      paletaConfig: resolvedPaleta.colors,
+      portadaUrl: clampStr(album.portadaUrl, BLUEPRINT_LIMITS.URL_MAX),
+      musicaUrl: clampStr(album.musicaUrl, BLUEPRINT_LIMITS.URL_MAX),
+      whatsappTexto: clampStr(
+        album.whatsappTexto,
+        BLUEPRINT_LIMITS.WHATSAPP_MAX
+      ),
+      tutoraTitulo: clampStr(
+        album.tutoraTitulo,
+        BLUEPRINT_LIMITS.TUTORA_TITULO_MAX
+      ),
+      tutoraNombre: clampStr(
+        album.tutoraNombre,
+        BLUEPRINT_LIMITS.TUTORA_NOMBRE_MAX
+      ),
+      tutoraCargo: clampStr(
+        album.tutoraCargo,
+        BLUEPRINT_LIMITS.TUTORA_CARGO_MAX
+      ),
+      tutoraFotoUrl: clampStr(album.tutoraFotoUrl, BLUEPRINT_LIMITS.URL_MAX),
+      tutoraTexto: clampStr(
+        album.tutoraTexto,
+        BLUEPRINT_LIMITS.TUTORA_TEXTO_MAX
+      ),
+      fotos: sanitizedFotos,
+      videos: sanitizedVideos,
+      allowGroupAnuario: Boolean(album.allowGroupAnuario),
+      generalShareEnabled: Boolean(album.generalShareEnabled),
+      generalAccessToken: generalToken,
+      generalTokenRevoked: Boolean(album.generalTokenRevoked),
+      status: effectiveStatus,
+      ownerUid: safeOwnerUid,
+      hasUnpublishedChanges: false,
+      createdAt: safeCreatedAt,
+      updatedAt: serverTimestamp()
+    });
+
+    // 2. Asegurar tokens válidos en alumnos que todavía no tengan uno
+    const studentsNeedingToken = preparedStudents.filter(
+      (st) => !isValidAccessToken(st.accessToken)
+    );
+    const CHUNK_SIZE = 12;
+    if (studentsNeedingToken.length > 0) {
+      currentPath = `albums/${album.id}/students`;
+      const rawStudentsSnap = await getDocs(
+        collection(db, 'albums', album.id, 'students')
+      );
+      const rawStudentDataMap = new Map(
+        rawStudentsSnap.docs.map((d) => [d.id, d.data()])
+      );
+      for (let i = 0; i < studentsNeedingToken.length; i += CHUNK_SIZE) {
+        const chunk = studentsNeedingToken.slice(i, i + CHUNK_SIZE);
+        const stBatch = writeBatch(db);
+        chunk.forEach((st) => {
+          stBatch.set(
+            doc(db, 'albums', album.id, 'students', st.id),
+            buildNormalizedStudentPayload(
+              album.id,
+              st.id,
+              rawStudentDataMap.get(st.id),
+              publisherUid,
+              {
+                accessToken: st.safeToken,
+                tokenRevoked: Boolean(st.tokenRevoked)
+              }
+            )
+          );
+        });
+        await stBatch.commit();
+      }
+    }
+
+    // 3. Preparar operaciones de /albumAccess en lotes <= 12 para respetar límites de reglas Firestore
+    currentPath = 'albumAccess';
+    const existingTokensSnap = await getDocs(
+      query(collection(db, 'albumAccess'), where('albumId', '==', album.id))
+    );
+
     const anuarioCards: PublicStudentCard[] = album.allowGroupAnuario
       ? preparedStudents
-          .filter((s) => s.status === 'publicado' && !s.tokenRevoked)
+          .filter((s) => s.safeStatus === 'publicado' && !s.tokenRevoked)
+          .slice(0, 120)
           .map((s) => ({
-            nombre:
-              clampStr(s.nombre, BLUEPRINT_LIMITS.STUDENT_NAME_MAX) ||
-              'Egresado',
+            nombre: s.safeNombre,
             frase: clampStr(s.frase, BLUEPRINT_LIMITS.STUDENT_FRASE_MAX),
             fotoUrl: clampStr(s.fotoUrl, BLUEPRINT_LIMITS.URL_MAX)
           }))
@@ -983,13 +2022,12 @@ export async function publishAlbumSnapshot(
     const basePayload = {
       albumId: album.id,
       albumStatus: effectiveStatus,
-      colegio: clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX) || 'Colegio',
-      promocion:
-        clampStr(album.promocion, BLUEPRINT_LIMITS.PROMOCION_MAX) ||
-        'Promoción',
-      nivel: album.nivel,
-      anio: BLUEPRINT_LIMITS.ANIO_REGEX.test(album.anio) ? album.anio : '2026',
-      paleta: album.paleta,
+      colegio: safeColegio,
+      promocion: safePromocion,
+      nivel: safeNivel,
+      anio: safeAnio,
+      paleta: resolvedPaleta.codigo,
+      paletaConfig: resolvedPaleta.colors,
       portadaUrl: clampStr(album.portadaUrl, BLUEPRINT_LIMITS.URL_MAX),
       musicaUrl: clampStr(album.musicaUrl, BLUEPRINT_LIMITS.URL_MAX),
       tutoraTitulo: clampStr(
@@ -1016,67 +2054,71 @@ export async function publishAlbumSnapshot(
       updatedAt: serverTimestamp()
     };
 
-    const batch = writeBatch(db);
     const activeTokens = new Set<string>();
+    const accessWrites: Array<{
+      token: string;
+      payload: Record<string, unknown>;
+    }> = [];
 
-    // 1. Sincronizar tokens individuales por alumno (SIN parentPhone)
     preparedStudents.forEach((st) => {
-      if (!isValidAccessToken(st.accessToken)) {
-        batch.update(doc(db, 'albums', album.id, 'students', st.id), {
-          accessToken: st.safeToken,
-          tokenRevoked: Boolean(st.tokenRevoked),
-          updatedAt: serverTimestamp()
-        });
-      }
-
       if (effectiveStatus === 'publicado') {
+        const studentPaleta = st.paleta
+          ? resolveAlbumPalette(st.paleta, st.paletaConfig)
+          : resolvedPaleta;
         activeTokens.add(st.safeToken);
-        batch.set(doc(db, 'albumAccess', st.safeToken), {
-          ...basePayload,
-          scope: 'student',
-          studentStatus: st.status,
-          revoked: Boolean(st.tokenRevoked),
-          student: {
-            nombre:
-              clampStr(st.nombre, BLUEPRINT_LIMITS.STUDENT_NAME_MAX) ||
-              'Egresado',
-            frase: clampStr(st.frase, BLUEPRINT_LIMITS.STUDENT_FRASE_MAX),
-            fotoUrl: clampStr(st.fotoUrl, BLUEPRINT_LIMITS.URL_MAX)
+        accessWrites.push({
+          token: st.safeToken,
+          payload: {
+            ...basePayload,
+            paleta: studentPaleta.codigo,
+            paletaConfig: studentPaleta.colors,
+            scope: 'student',
+            studentStatus: st.safeStatus,
+            revoked: Boolean(st.tokenRevoked),
+            student: {
+              nombre: st.safeNombre,
+              frase: clampStr(st.frase, BLUEPRINT_LIMITS.STUDENT_FRASE_MAX),
+              fotoUrl: clampStr(st.fotoUrl, BLUEPRINT_LIMITS.URL_MAX)
+            }
           }
         });
       }
     });
 
-    // 2. Sincronizar token general opcional (si está habilitado)
     if (effectiveStatus === 'publicado' && album.generalShareEnabled) {
       activeTokens.add(generalToken);
-      batch.set(doc(db, 'albumAccess', generalToken), {
-        ...basePayload,
-        scope: 'album',
-        studentStatus: 'publicado',
-        revoked: Boolean(album.generalTokenRevoked)
+      accessWrites.push({
+        token: generalToken,
+        payload: {
+          ...basePayload,
+          scope: 'album',
+          studentStatus: 'publicado',
+          revoked: Boolean(album.generalTokenRevoked)
+        }
       });
     }
 
-    // 3. Eliminar tokens huérfanos, deshabilitados o cuando el álbum pasa a borrador
-    existingTokensSnap.docs.forEach((d) => {
-      if (!activeTokens.has(d.id)) {
-        batch.delete(d.ref);
-      }
-    });
+    for (let i = 0; i < accessWrites.length; i += CHUNK_SIZE) {
+      const chunk = accessWrites.slice(i, i + CHUNK_SIZE);
+      const accessBatch = writeBatch(db);
+      chunk.forEach((item) => {
+        accessBatch.set(doc(db, 'albumAccess', item.token), item.payload);
+      });
+      await accessBatch.commit();
+    }
 
-    // 4. Actualizar estado del álbum en el espacio privado
-    batch.update(doc(db, 'albums', album.id), {
-      slug: cleanSlug,
-      generalAccessToken: generalToken,
-      status: effectiveStatus,
-      hasUnpublishedChanges: false,
-      updatedAt: serverTimestamp()
-    });
-
-    await batch.commit();
+    // 4. Eliminar tokens huérfanos, deshabilitados o cuando el álbum pasa a borrador
+    const orphanRefs = existingTokensSnap.docs
+      .filter((d) => !activeTokens.has(d.id))
+      .map((d) => d.ref);
+    for (let i = 0; i < orphanRefs.length; i += CHUNK_SIZE) {
+      const chunk = orphanRefs.slice(i, i + CHUNK_SIZE);
+      const delBatch = writeBatch(db);
+      chunk.forEach((ref) => delBatch.delete(ref));
+      await delBatch.commit();
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    handleFirestoreError(error, OperationType.WRITE, currentPath);
   }
 }
 
@@ -1117,7 +2159,8 @@ export async function fetchAlbumAccessByToken(
         promocion: String(data.promocion || ''),
         nivel: (data.nivel as AlbumAccessDoc['nivel']) || 'Primaria',
         anio: String(data.anio || '2026'),
-        paleta: (data.paleta as AlbumAccessDoc['paleta']) || 'primaria-azul-oro',
+        paleta: (data.paleta as AlbumAccessDoc['paleta']) || DEFAULT_PALETTE_CODE,
+        paletaConfig: parsePaletteConfig(data.paletaConfig),
         portadaUrl: String(data.portadaUrl || ''),
         musicaUrl: String(data.musicaUrl || ''),
         tutoraTitulo: String(data.tutoraTitulo || ''),
@@ -1161,7 +2204,8 @@ export async function fetchDraftPreviewForAdmin(
     promocion: String(data.promocion || ''),
     nivel: (data.nivel as DraftAlbum['nivel']) || 'Primaria',
     anio: String(data.anio || '2026'),
-    paleta: (data.paleta as DraftAlbum['paleta']) || 'primaria-azul-oro',
+    paleta: (data.paleta as DraftAlbum['paleta']) || DEFAULT_PALETTE_CODE,
+    paletaConfig: parsePaletteConfig(data.paletaConfig),
     portadaUrl: String(data.portadaUrl || ''),
     musicaUrl: String(data.musicaUrl || ''),
     whatsappTexto: String(data.whatsappTexto || ''),
@@ -1197,6 +2241,11 @@ export async function fetchDraftPreviewForAdmin(
       frase: String(s.frase || ''),
       fotoUrl: String(s.fotoUrl || ''),
       parentPhone: String(s.parentPhone || ''),
+      paleta:
+        typeof s.paleta === 'string' && s.paleta.trim().length >= 3
+          ? s.paleta.trim()
+          : undefined,
+      paletaConfig: parsePaletteConfig(s.paletaConfig),
       accessToken: String(s.accessToken || ''),
       tokenRevoked: Boolean(s.tokenRevoked),
       status: (s.status as PublishStatus) || 'publicado',

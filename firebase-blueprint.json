@@ -58,7 +58,13 @@
         },
         "paleta": {
           "type": "string",
-          "enum": ["inicial-pastel", "primaria-azul-oro", "secundaria-elegante"]
+          "minLength": 3,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9\\-]+$"
+        },
+        "paletaConfig": {
+          "type": "object",
+          "description": "Instantánea de los 4 colores HEX asignados al álbum."
         },
         "portadaUrl": {
           "type": "string",
@@ -182,6 +188,16 @@
           "type": "string",
           "maxLength": 30
         },
+        "paleta": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9\\-]+$"
+        },
+        "paletaConfig": {
+          "type": "object",
+          "description": "Paleta de 4 colores HEX asignada específicamente a esta alumna o alumno (si se omite, hereda la del álbum)."
+        },
         "accessToken": {
           "type": "string",
           "minLength": 32,
@@ -271,7 +287,13 @@
         },
         "paleta": {
           "type": "string",
-          "enum": ["inicial-pastel", "primaria-azul-oro", "secundaria-elegante"]
+          "minLength": 3,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9\\-]+$"
+        },
+        "paletaConfig": {
+          "type": "object",
+          "description": "Instantánea de los 4 colores HEX para renderizado público directo."
         },
         "portadaUrl": {
           "type": "string",
@@ -336,12 +358,84 @@
         "publishedBy",
         "updatedAt"
       ]
+    },
+    "ColorPalette": {
+      "title": "ColorPalette",
+      "description": "Combinación de 4 colores HEX reutilizable para personalizar álbumes.",
+      "type": "object",
+      "properties": {
+        "codigo": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 60,
+          "pattern": "^[a-z0-9\\-]+$"
+        },
+        "nombre": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80
+        },
+        "descripcion": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "colorPrincipal": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "colorSecundario": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "colorAcento": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "colorTexto": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "activa": {
+          "type": "boolean"
+        },
+        "esPredeterminada": {
+          "type": "boolean"
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "codigo",
+        "nombre",
+        "colorPrincipal",
+        "colorSecundario",
+        "colorAcento",
+        "colorTexto",
+        "activa",
+        "ownerUid",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
     "/admins/{uid}": {
       "schema": { "$ref": "#/entities/AdminUser" },
       "description": "Administradores delegados gestionados exclusivamente por la cuenta superadministradora."
+    },
+    "/palettes/{paletteId}": {
+      "schema": { "$ref": "#/entities/ColorPalette" },
+      "description": "Paletas de 4 colores administradas desde Datos y Diseño."
     },
     "/albums/{albumId}": {
       "schema": { "$ref": "#/entities/DraftAlbum" },

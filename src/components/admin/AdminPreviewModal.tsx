@@ -1,19 +1,28 @@
 import React, { useState } from 'react';
 import { Monitor, Smartphone, X, ExternalLink } from 'lucide-react';
+import { DraftStudent } from '../../types/album';
 
 interface AdminPreviewModalProps {
   albumId: string;
   albumTitle: string;
+  students?: DraftStudent[];
   onClose: () => void;
 }
 
 export const AdminPreviewModal: React.FC<AdminPreviewModalProps> = ({
   albumId,
   albumTitle,
+  students = [],
   onClose
 }) => {
   const [device, setDevice] = useState<'mobile' | 'desktop'>('mobile');
-  const previewUrl = `${window.location.origin}/?previewDraft=${encodeURIComponent(albumId)}`;
+  const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+
+  const previewUrl = selectedStudentId
+    ? `${window.location.origin}/?previewDraft=${encodeURIComponent(
+        albumId
+      )}&studentId=${encodeURIComponent(selectedStudentId)}`
+    : `${window.location.origin}/?previewDraft=${encodeURIComponent(albumId)}`;
 
   return (
     <div
@@ -33,7 +42,24 @@ export const AdminPreviewModal: React.FC<AdminPreviewModalProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {students.length > 0 && (
+              <select
+                value={selectedStudentId}
+                onChange={(e) => setSelectedStudentId(e.target.value)}
+                aria-label="Seleccionar vista de alumno o evento general"
+                className="h-8 max-w-[200px] px-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700"
+              >
+                <option value="">Vista general del evento</option>
+                {students.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nombre}
+                    {s.paleta ? ' ★' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+
             <div className="inline-flex bg-slate-200/70 p-0.5 rounded-lg">
               <button
                 type="button"
@@ -89,6 +115,7 @@ export const AdminPreviewModal: React.FC<AdminPreviewModalProps> = ({
             }`}
           >
             <iframe
+              key={previewUrl}
               src={previewUrl}
               title="Vista previa del álbum"
               className="w-full h-full border-0"

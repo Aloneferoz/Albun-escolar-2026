@@ -22,29 +22,39 @@ import {
 } from 'lucide-react';
 import { auth, googleProvider, testConnection } from './firebase';
 import {
+  assignPaletteTargets,
   batchImportStudents,
   checkIsAdmin,
+  clearStudentPaletteOverride,
   createDraftAlbum,
+  deleteColorPalette,
   deleteDraftAlbum,
   deleteDraftStudent,
   isSuperAdminUser,
   publishAlbumSnapshot,
   regenerateGeneralAlbumToken,
   regenerateStudentToken,
+  saveColorPalette,
   seedDefaultAlbum,
+  seedDefaultPalettes,
   setStudentTokenRevocation,
   subscribeDraftAlbums,
   subscribeDraftStudents,
+  subscribePalettes,
   syncAnuarioEntries,
   updateDraftAlbum,
   upsertDraftStudent
 } from './services/albumService';
 import {
+  ColorPalette,
+  DEFAULT_PALETTE_CODE,
+  DEFAULT_PALETTES,
   DraftAlbum,
   DraftStudent,
   NivelEducativo,
   PaletaVisual,
   PublishStatus,
+  resolveAlbumPalette,
   slugify
 } from './types/album';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -65,6 +75,7 @@ function AdminDashboardContent() {
 
   const [albums, setAlbums] = useState<DraftAlbum[]>([]);
   const [albumsLoaded, setAlbumsLoaded] = useState(false);
+  const [palettes, setPalettes] = useState<ColorPalette[]>(DEFAULT_PALETTES);
   const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
   const [students, setStudents] = useState<DraftStudent[]>([]);
   const [section, setSection] = useState<AdminSection>('resumen');
@@ -80,7 +91,7 @@ function AdminDashboardContent() {
   const [newPromocion, setNewPromocion] = useState('');
   const [newNivel, setNewNivel] = useState<NivelEducativo>('Primaria');
   const [newAnio, setNewAnio] = useState('2026');
-  const [newPaleta, setNewPaleta] = useState<PaletaVisual>('primaria-azul-oro');
+  const [newPaleta, setNewPaleta] = useState<PaletaVisual>(DEFAULT_PALETTE_CODE);
   const [creatingAlbum, setCreatingAlbum] = useState(false);
 
   const showToast = (msg: string) => {
@@ -119,6 +130,13 @@ function AdminDashboardContent() {
       return;
     }
 
+    void seedDefaultPalettes(user.uid);
+    const unsubPalettes = subscribePalettes((list) => {
+      if (list.length > 0) {
+        setPalettes(list);
+      }
+    });
+
     const unsub = subscribeDraftAlbums((list) => {
       setAlbums(list);
       setAlbumsLoaded(true);
@@ -128,7 +146,10 @@ function AdminDashboardContent() {
       });
     });
 
-    return () => unsub();
+    return () => {
+      unsub();
+      unsubPalettes();
+    };
   }, [authReady, user, isAdminUser]);
 
   const activeAlbum = useMemo(
@@ -190,12 +211,14 @@ function AdminDashboardContent() {
     if (!user) return;
     setCreatingAlbum(true);
     try {
+      const resolvedNewPalette = resolveAlbumPalette(newPaleta, null, palettes);
       const newId = await createDraftAlbum(user.uid, {
         colegio: newColegio,
         promocion: newPromocion,
         nivel: newNivel,
         anio: newAnio,
-        paleta: newPaleta,
+        paleta: resolvedNewPalette.codigo,
+        paletaConfig: resolvedNewPalette.colors,
         slug: slugify(`${newColegio}-${newAnio}`, 3)
       });
       setSelectedAlbumId(newId);
@@ -564,8 +587,22 @@ function AdminDashboardContent() {
               {section === 'multimedia' && (
                 <AdminAlbumEditor
                   album={activeAlbum}
+                  allAlbums={albums}
                   students={students}
+                  palettes={palettes}
                   onSaveAlbum={(patch) => updateDraftAlbum(activeAlbum.id, patch)}
+                  onAssignPaletteTargets={async (palette, target) => {
+                    await assignPaletteTargets(activeAlbum.id, palette, target);
+                    showToast(
+                      target.scope === 'album'
+                        ? `Paleta «${palette.nombre}» aplicada a ${activeAlbum.colegio}.`
+                        : `Paleta «${palette.nombre}» aplicada a ${target.studentIds.length} estudiante(s).`
+                    );
+                  }}
+                  onClearStudentPalette={async (studentId) => {
+                    await clearStudentPaletteOverride(activeAlbum.id, studentId);
+                    showToast('El estudiante volverá a heredar la paleta del evento.');
+                  }}
                   onSaveAnuario={async (entries) => {
                     await syncAnuarioEntries(
                       activeAlbum.id,
@@ -574,6 +611,31 @@ function AdminDashboardContent() {
                       entries
                     );
                     showToast('Anuario guardado y sincronizado.');
+                  }}
+                  onSavePalette={async (input, options) => {
+                    const saved = await saveColorPalette(user.uid, input, options);
+                    showToast(
+                      options.mode === 'create'
+                        ? `Paleta «${saved.nombre}» guardada en tu catálogo.`
+                        : `Paleta «${saved.nombre}» actualizada.`
+                    );
+                    return saved;
+                  }}
+                  onDeletePalette={async (
+                    paletteCode,
+                    assignedAlbumIds,
+                    allAlbumIds
+                  ) => {
+                    await deleteColorPalette(
+                      paletteCode,
+                      assignedAlbumIds,
+                      allAlbumIds
+                    );
+                    showToast(
+                      assignedAlbumIds.length > 0
+                        ? 'Paleta eliminada; álbumes y alumnos reasignados a la paleta predeterminada.'
+                        : 'Paleta eliminada del catálogo.'
+                    );
                   }}
                   onNavigateAlumnos={() => setSection('alumnos')}
                   onDeleteAlbum={async () => {
@@ -590,6 +652,7 @@ function AdminDashboardContent() {
                 <AdminStudentsManager
                   album={activeAlbum}
                   students={students}
+                  palettes={palettes}
                   onUpsertStudent={async (studentId, input) => {
                     await upsertDraftStudent(
                       activeAlbum.id,
@@ -795,9 +858,13 @@ function AdminDashboardContent() {
                   onChange={(e) => setNewPaleta(e.target.value as PaletaVisual)}
                   className="w-full h-9 px-3 rounded-lg border border-slate-200 text-sm bg-white text-slate-900"
                 >
-                  <option value="inicial-pastel">Inicial Pastel</option>
-                  <option value="primaria-azul-oro">Primaria Azul & Oro</option>
-                  <option value="secundaria-elegante">Secundaria Elegante</option>
+                  {palettes
+                    .filter((p) => p.activa)
+                    .map((p) => (
+                      <option key={p.codigo} value={p.codigo}>
+                        {p.nombre}
+                      </option>
+                    ))}
                 </select>
               </div>
             </div>
@@ -827,6 +894,7 @@ function AdminDashboardContent() {
         <AdminPreviewModal
           albumId={activeAlbum.id}
           albumTitle={`${activeAlbum.colegio} · ${activeAlbum.promocion}`}
+          students={students}
           onClose={() => setPreviewOpen(false)}
         />
       )}

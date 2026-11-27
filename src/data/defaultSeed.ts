@@ -1,4 +1,11 @@
-import { FotoItem, NivelEducativo, PaletaVisual, VideoItem } from '../types/album';
+import {
+  DEFAULT_PALETTE_COLORS,
+  FotoItem,
+  NivelEducativo,
+  PaletaVisual,
+  PaletteColors,
+  VideoItem
+} from '../types/album';
 
 export interface SeedAlbumTemplate {
   id: string;
@@ -8,6 +15,7 @@ export interface SeedAlbumTemplate {
   nivel: NivelEducativo;
   anio: string;
   paleta: PaletaVisual;
+  paletaConfig: PaletteColors;
   portadaUrl: string;
   musicaUrl: string;
   whatsappTexto: string;
@@ -36,6 +44,7 @@ export const DEFAULT_SEED_ALBUM: SeedAlbumTemplate = {
   nivel: 'Primaria',
   anio: '2026',
   paleta: 'primaria-azul-oro',
+  paletaConfig: DEFAULT_PALETTE_COLORS,
   portadaUrl: '/src/assets/images/hero_promocion_1795554401911.jpg',
   musicaUrl: '',
   whatsappTexto:

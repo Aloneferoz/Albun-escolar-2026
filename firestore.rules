@@ -19,6 +19,10 @@ service cloud.firestore {
       return token is string && token.size() >= 32 && token.size() <= 64 && token.matches('^[A-Za-z0-9_\\-]+$');
     }
 
+    function isValidHex(val) {
+      return val is string && val.size() == 7 && val.matches('^#[0-9A-Fa-f]{6}$');
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -45,6 +49,42 @@ service cloud.firestore {
         isVerifiedUser() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
+    }
+
+    function isValidPaletteConfig(cfg) {
+      return cfg is map &&
+             cfg.keys().hasAll(['colorPrincipal', 'colorSecundario', 'colorAcento', 'colorTexto']) &&
+             cfg.keys().hasOnly(['colorPrincipal', 'colorSecundario', 'colorAcento', 'colorTexto']) &&
+             isValidHex(cfg.colorPrincipal) &&
+             isValidHex(cfg.colorSecundario) &&
+             isValidHex(cfg.colorAcento) &&
+             isValidHex(cfg.colorTexto);
+    }
+
+    function isValidColorPalette(data, paletteId) {
+      return data.keys().hasAll([
+               'codigo', 'nombre',
+               'colorPrincipal', 'colorSecundario', 'colorAcento', 'colorTexto',
+               'activa', 'ownerUid', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'codigo', 'nombre', 'descripcion',
+               'colorPrincipal', 'colorSecundario', 'colorAcento', 'colorTexto',
+               'activa', 'esPredeterminada', 'ownerUid', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidSlug(data.codigo) && data.codigo.size() >= 3 && data.codigo.size() <= 60 &&
+             data.codigo == paletteId &&
+             data.nombre is string && data.nombre.size() >= 2 && data.nombre.size() <= 80 &&
+             (!('descripcion' in data) || (data.descripcion is string && data.descripcion.size() <= 240)) &&
+             isValidHex(data.colorPrincipal) &&
+             isValidHex(data.colorSecundario) &&
+             isValidHex(data.colorAcento) &&
+             isValidHex(data.colorTexto) &&
+             data.activa is bool &&
+             (!('esPredeterminada' in data) || data.esPredeterminada is bool) &&
+             data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
     }
 
     function isValidPhotoItem(item) {
@@ -92,7 +132,7 @@ service cloud.firestore {
                'status', 'ownerUid', 'createdAt', 'updatedAt'
              ]) &&
              data.keys().hasOnly([
-               'slug', 'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+               'slug', 'colegio', 'promocion', 'nivel', 'anio', 'paleta', 'paletaConfig',
                'portadaUrl', 'musicaUrl', 'whatsappTexto',
                'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
                'fotos', 'videos',
@@ -105,7 +145,8 @@ service cloud.firestore {
              data.promocion is string && data.promocion.size() >= 2 && data.promocion.size() <= 140 &&
              data.nivel in ['Inicial', 'Primaria', 'Secundaria'] &&
              data.anio is string && data.anio.size() == 4 && data.anio.matches('^[0-9]{4}$') &&
-             data.paleta in ['inicial-pastel', 'primaria-azul-oro', 'secundaria-elegante'] &&
+             isValidSlug(data.paleta) && data.paleta.size() >= 3 &&
+             (!('paletaConfig' in data) || isValidPaletteConfig(data.paletaConfig)) &&
              (!('portadaUrl' in data) || (data.portadaUrl is string && data.portadaUrl.size() <= 500)) &&
              (!('musicaUrl' in data) || (data.musicaUrl is string && data.musicaUrl.size() <= 500)) &&
              (!('whatsappTexto' in data) || (data.whatsappTexto is string && data.whatsappTexto.size() <= 500)) &&
@@ -131,6 +172,7 @@ service cloud.firestore {
       return data.keys().hasAll(['albumId', 'slug', 'nombre', 'accessToken', 'tokenRevoked', 'status', 'order', 'ownerUid', 'createdAt', 'updatedAt']) &&
              data.keys().hasOnly([
                'albumId', 'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
+               'paleta', 'paletaConfig',
                'accessToken', 'tokenRevoked',
                'status', 'order', 'ownerUid', 'createdAt', 'updatedAt'
              ]) &&
@@ -140,6 +182,8 @@ service cloud.firestore {
              (!('frase' in data) || (data.frase is string && data.frase.size() <= 400)) &&
              (!('fotoUrl' in data) || (data.fotoUrl is string && data.fotoUrl.size() <= 500)) &&
              (!('parentPhone' in data) || (data.parentPhone is string && data.parentPhone.size() <= 30)) &&
+             (!('paleta' in data) || (isValidSlug(data.paleta) && data.paleta.size() >= 3)) &&
+             (!('paletaConfig' in data) || isValidPaletteConfig(data.paletaConfig)) &&
              isValidToken(data.accessToken) &&
              data.tokenRevoked is bool &&
              data.status in ['borrador', 'publicado'] &&
@@ -157,7 +201,7 @@ service cloud.firestore {
              ]) &&
              data.keys().hasOnly([
                'albumId', 'scope', 'albumStatus', 'studentStatus', 'revoked',
-               'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+               'colegio', 'promocion', 'nivel', 'anio', 'paleta', 'paletaConfig',
                'portadaUrl', 'musicaUrl',
                'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
                'fotos', 'videos', 'student', 'anuario',
@@ -172,7 +216,8 @@ service cloud.firestore {
              data.promocion is string && data.promocion.size() >= 2 && data.promocion.size() <= 140 &&
              data.nivel in ['Inicial', 'Primaria', 'Secundaria'] &&
              data.anio is string && data.anio.size() == 4 && data.anio.matches('^[0-9]{4}$') &&
-             data.paleta in ['inicial-pastel', 'primaria-azul-oro', 'secundaria-elegante'] &&
+             isValidSlug(data.paleta) && data.paleta.size() >= 3 &&
+             (!('paletaConfig' in data) || isValidPaletteConfig(data.paletaConfig)) &&
              (!('portadaUrl' in data) || (data.portadaUrl is string && data.portadaUrl.size() <= 500)) &&
              (!('musicaUrl' in data) || (data.musicaUrl is string && data.musicaUrl.size() <= 500)) &&
              (!('tutoraTitulo' in data) || (data.tutoraTitulo is string && data.tutoraTitulo.size() <= 160)) &&
@@ -202,6 +247,29 @@ service cloud.firestore {
       allow delete: if isValidId(uid) && isSuperAdmin() && uid != request.auth.uid;
     }
 
+    // Catálogo de paletas de 4 colores administrables (solo admins)
+    match /palettes/{paletteId} {
+      allow get: if isValidSlug(paletteId) && paletteId.size() >= 3 && paletteId.size() <= 60 && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidSlug(paletteId) && paletteId.size() >= 3 && paletteId.size() <= 60 && isAdmin() &&
+                    isValidColorPalette(incoming(), paletteId) &&
+                    incoming().ownerUid == request.auth.uid &&
+                    incoming().createdAt == request.time &&
+                    incoming().updatedAt == request.time;
+      allow update: if isValidSlug(paletteId) && paletteId.size() >= 3 && paletteId.size() <= 60 && isAdmin() &&
+                    isValidColorPalette(incoming(), paletteId) &&
+                    incoming().codigo == existing().codigo &&
+                    incoming().ownerUid == existing().ownerUid &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().updatedAt == request.time &&
+                    incoming().diff(existing()).affectedKeys().hasOnly([
+                      'nombre', 'descripcion',
+                      'colorPrincipal', 'colorSecundario', 'colorAcento', 'colorTexto',
+                      'activa', 'esPredeterminada', 'updatedAt'
+                    ]);
+      allow delete: if isValidSlug(paletteId) && paletteId.size() >= 3 && paletteId.size() <= 60 && isAdmin();
+    }
+
     // Espacio de trabajo privado de álbumes (solo admins)
     match /albums/{albumId} {
       allow get: if isValidId(albumId) && isAdmin();
@@ -213,20 +281,28 @@ service cloud.firestore {
                     incoming().updatedAt == request.time;
       allow update: if isValidId(albumId) && isAdmin() &&
                     isValidDraftAlbum(incoming()) &&
-                    incoming().ownerUid == existing().ownerUid &&
-                    incoming().createdAt == existing().createdAt &&
+                    (!('ownerUid' in existing()) || !(existing().ownerUid is string) || existing().ownerUid == '' || incoming().ownerUid == existing().ownerUid) &&
+                    (!('createdAt' in existing()) || !(existing().createdAt is timestamp) || incoming().createdAt == existing().createdAt) &&
                     incoming().updatedAt == request.time &&
-                    incoming().diff(existing()).affectedKeys().hasOnly([
-                      'slug', 'colegio', 'promocion', 'nivel', 'anio', 'paleta',
+                    incoming().diff(existing()).addedKeys().hasOnly([
+                      'slug', 'colegio', 'promocion', 'nivel', 'anio', 'paleta', 'paletaConfig',
                       'portadaUrl', 'musicaUrl', 'whatsappTexto',
                       'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
                       'fotos', 'videos',
                       'allowGroupAnuario', 'generalShareEnabled', 'generalAccessToken', 'generalTokenRevoked',
-                      'status', 'hasUnpublishedChanges', 'updatedAt'
+                      'status', 'ownerUid', 'hasUnpublishedChanges', 'createdAt', 'updatedAt'
+                    ]) &&
+                    incoming().diff(existing()).changedKeys().hasOnly([
+                      'slug', 'colegio', 'promocion', 'nivel', 'anio', 'paleta', 'paletaConfig',
+                      'portadaUrl', 'musicaUrl', 'whatsappTexto',
+                      'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
+                      'fotos', 'videos',
+                      'allowGroupAnuario', 'generalShareEnabled', 'generalAccessToken', 'generalTokenRevoked',
+                      'status', 'ownerUid', 'hasUnpublishedChanges', 'createdAt', 'updatedAt'
                     ]);
       allow delete: if isValidId(albumId) && isAdmin();
 
-      // Alumnos privados (contiene parentPhone y accessToken; acceso exclusivo para admins)
+      // Alumnos privados (contiene parentPhone, accessToken y paleta opcional; acceso exclusivo para admins)
       match /students/{studentId} {
         allow get: if isValidId(albumId) && isValidId(studentId) && isAdmin();
         allow list: if isAdmin();
@@ -238,14 +314,21 @@ service cloud.firestore {
                       incoming().updatedAt == request.time;
         allow update: if isValidId(albumId) && isValidId(studentId) && isAdmin() &&
                       isValidDraftStudent(incoming(), albumId) &&
-                      incoming().albumId == existing().albumId &&
-                      incoming().ownerUid == existing().ownerUid &&
-                      incoming().createdAt == existing().createdAt &&
+                      (!('albumId' in existing()) || incoming().albumId == existing().albumId) &&
+                      (!('ownerUid' in existing()) || !(existing().ownerUid is string) || existing().ownerUid == '' || incoming().ownerUid == existing().ownerUid) &&
+                      (!('createdAt' in existing()) || !(existing().createdAt is timestamp) || incoming().createdAt == existing().createdAt) &&
                       incoming().updatedAt == request.time &&
-                      incoming().diff(existing()).affectedKeys().hasOnly([
-                        'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
+                      incoming().diff(existing()).addedKeys().hasOnly([
+                        'albumId', 'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
+                        'paleta', 'paletaConfig',
                         'accessToken', 'tokenRevoked',
-                        'status', 'order', 'updatedAt'
+                        'status', 'order', 'ownerUid', 'createdAt', 'updatedAt'
+                      ]) &&
+                      incoming().diff(existing()).changedKeys().hasOnly([
+                        'albumId', 'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
+                        'paleta', 'paletaConfig',
+                        'accessToken', 'tokenRevoked',
+                        'status', 'order', 'ownerUid', 'createdAt', 'updatedAt'
                       ]);
         allow delete: if isValidId(albumId) && isValidId(studentId) && isAdmin();
       }
@@ -263,25 +346,20 @@ service cloud.firestore {
                  );
       allow list: if isAdmin();
       allow create: if isValidToken(accessToken) && isAdmin() &&
-                    existsAfter(/databases/$(database)/documents/albums/$(incoming().albumId)) &&
+                    (
+                      exists(/databases/$(database)/documents/albums/$(incoming().albumId)) ||
+                      existsAfter(/databases/$(database)/documents/albums/$(incoming().albumId))
+                    ) &&
                     isValidAlbumAccess(incoming()) &&
                     incoming().publishedBy == request.auth.uid &&
                     incoming().updatedAt == request.time;
       allow update: if isValidToken(accessToken) && isAdmin() &&
                     isValidAlbumAccess(incoming()) &&
-                    incoming().albumId == existing().albumId &&
-                    incoming().scope == existing().scope &&
+                    (!('albumId' in existing()) || incoming().albumId == existing().albumId) &&
+                    (!('scope' in existing()) || incoming().scope == existing().scope) &&
                     incoming().publishedBy == request.auth.uid &&
-                    incoming().updatedAt == request.time &&
-                    incoming().diff(existing()).affectedKeys().hasOnly([
-                      'albumStatus', 'studentStatus', 'revoked',
-                      'colegio', 'promocion', 'nivel', 'anio', 'paleta',
-                      'portadaUrl', 'musicaUrl',
-                      'tutoraTitulo', 'tutoraNombre', 'tutoraCargo', 'tutoraFotoUrl', 'tutoraTexto',
-                      'fotos', 'videos', 'student', 'anuario',
-                      'publishedBy', 'updatedAt'
-                    ]);
-      allow delete: if isValidToken(accessToken) && isAdmin();
+                    incoming().updatedAt == request.time;
+      allow delete: if isValidId(accessToken) && isAdmin();
     }
 
     // Verificación de conexión inicial
