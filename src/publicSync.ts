@@ -183,8 +183,12 @@ export async function initPublicAlbumSync(): Promise<void> {
         const effectivePaleta = focusedStudent?.paleta
           ? focusedStudent.paleta
           : draft.album.paleta;
-        const effectivePaletaConfig = focusedStudent?.paleta
-          ? focusedStudent.paletaConfig
+        const hasStudentPalette = Boolean(
+          focusedStudent?.paleta || focusedStudent?.paletaConfig
+        );
+
+        const effectivePaletaConfig = hasStudentPalette
+          ? focusedStudent?.paletaConfig
           : draft.album.paletaConfig;
         const activePreviewStudent =
           focusedStudent || (!draft.album.allowGroupAnuario ? draft.students[0] : null);

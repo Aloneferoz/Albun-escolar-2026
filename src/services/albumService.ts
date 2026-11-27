@@ -1648,8 +1648,15 @@ export async function regenerateStudentToken(
         album.paleta,
         album.paletaConfig
       );
-      const effectiveStudentPaleta = targetStudent.paleta
-        ? resolveAlbumPalette(targetStudent.paleta, targetStudent.paletaConfig)
+      const hasStudentPalette = Boolean(
+        targetStudent.paleta || targetStudent.paletaConfig
+      );
+
+      const effectiveStudentPaleta = hasStudentPalette
+        ? resolveAlbumPalette(
+            targetStudent.paleta,
+            targetStudent.paletaConfig
+          )
         : resolvedAlbumPaleta;
       const rawColegio = clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX);
       const rawPromocion = clampStr(
@@ -2062,9 +2069,13 @@ export async function publishAlbumSnapshot(
 
     preparedStudents.forEach((st) => {
       if (effectiveStatus === 'publicado') {
-        const studentPaleta = st.paleta
-          ? resolveAlbumPalette(st.paleta, st.paletaConfig)
-          : resolvedPaleta;
+    const hasStudentPalette = Boolean(
+      st.paleta || st.paletaConfig
+    );
+
+    const studentPaleta = hasStudentPalette
+      ? resolveAlbumPalette(st.paleta, st.paletaConfig)
+      : resolvedPaleta;
         activeTokens.add(st.safeToken);
         accessWrites.push({
           token: st.safeToken,
