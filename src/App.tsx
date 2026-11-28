@@ -26,6 +26,7 @@ import {
   batchImportStudents,
   checkIsAdmin,
   clearStudentPaletteOverride,
+  cloneAndRepairAlbum,
   createDraftAlbum,
   deleteColorPalette,
   deleteDraftAlbum,
@@ -81,6 +82,9 @@ function AdminDashboardContent() {
   const [section, setSection] = useState<AdminSection>('resumen');
 
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishWarning, setPublishWarning] = useState<string | null>(null);
+  const [isCloning, setIsCloning] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -235,20 +239,77 @@ function AdminDashboardContent() {
   const handlePublish = async (targetStatus?: PublishStatus) => {
     if (!activeAlbum || !user) return;
     setIsPublishing(true);
+    setPublishError(null);
+    setPublishWarning(null);
     try {
-      await publishAlbumSnapshot(
+      const result = await publishAlbumSnapshot(
         activeAlbum,
         students,
         user.uid,
         targetStatus ?? 'publicado'
       );
-      showToast(
-        targetStatus === 'borrador'
-          ? 'Álbum pasado a borrador y tokens revocados.'
-          : 'Tokens y cambios publicados correctamente.'
+      if (result.albumDocSynced) {
+        showToast(
+          targetStatus === 'borrador'
+            ? 'Álbum pasado a borrador y tokens revocados.'
+            : 'Tokens y cambios publicados correctamente.'
+        );
+      } else {
+        setPublishWarning(
+          result.warning ||
+            'Los enlaces privados se sincronizaron, pero el documento padre del álbum no pudo actualizar su estado.'
+        );
+        showToast('Enlaces privados sincronizados; revisa el aviso en pantalla.');
+      }
+    } catch (err) {
+      let readable =
+        err instanceof Error
+          ? err.message
+          : 'No se pudieron sincronizar los cambios con los enlaces privados.';
+      try {
+        const parsed = JSON.parse(readable) as {
+          error?: string;
+          path?: string | null;
+        };
+        if (parsed?.error) {
+          readable = parsed.path
+            ? `${parsed.error} (ruta: ${parsed.path})`
+            : parsed.error;
+        }
+      } catch {
+        // Mantener mensaje original si no es JSON
+      }
+      console.error('Error al publicar álbum:', err);
+      setPublishError(
+        `No se pudo publicar en este momento: ${readable}`
       );
+      showToast('Error al publicar cambios. Revisa el detalle en pantalla.');
     } finally {
       setIsPublishing(false);
+    }
+  };
+
+  const handleCloneAlbum = async () => {
+    if (!activeAlbum || !user) return;
+    setIsCloning(true);
+    setPublishError(null);
+    try {
+      const newAlbumId = await cloneAndRepairAlbum(
+        activeAlbum,
+        students,
+        user.uid
+      );
+      setPublishWarning(null);
+      setSelectedAlbumId(newAlbumId);
+      setSection('publicar');
+      showToast('Álbum clonado en documento limpio. Ya puedes publicarlo.');
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : 'No se pudo clonar el álbum.';
+      setPublishError(`No se pudo clonar el álbum: ${msg}`);
+      showToast('Error al clonar el álbum.');
+    } finally {
+      setIsCloning(false);
     }
   };
 
@@ -437,7 +498,7 @@ function AdminDashboardContent() {
 
         {/* Pie de sesión */}
         <div className="p-3 border-t border-slate-200 space-y-2">
-          {activeAlbum && (
+          {false && activeAlbum && (
             <button
               type="button"
               onClick={() => setPreviewOpen(true)}
@@ -570,6 +631,60 @@ function AdminDashboardContent() {
             </div>
           ) : (
             <>
+              {publishWarning && (
+                <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-950">
+                  <div className="flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <span>{publishWarning}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isCloning}
+                      onClick={() => void handleCloneAlbum()}
+                      className="h-8 px-3 rounded-lg bg-amber-900 hover:bg-amber-950 disabled:opacity-60 text-white text-[11px] font-semibold cursor-pointer"
+                    >
+                      {isCloning ? 'Clonando...' : 'Clonar en documento limpio'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPublishWarning(null)}
+                      className="text-amber-700 hover:text-amber-950 cursor-pointer"
+                      aria-label="Cerrar aviso"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {publishError && (
+                <div className="mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-900">
+                  <div className="flex items-start gap-2.5">
+                    <ShieldAlert className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+                    <span>{publishError}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={isCloning}
+                      onClick={() => void handleCloneAlbum()}
+                      className="h-8 px-3 rounded-lg border border-red-300 bg-white hover:bg-red-100 disabled:opacity-60 text-red-900 text-[11px] font-semibold cursor-pointer"
+                    >
+                      {isCloning ? 'Clonando...' : 'Clonar en documento limpio'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPublishError(null)}
+                      className="text-red-700 hover:text-red-950 shrink-0 cursor-pointer"
+                      aria-label="Cerrar aviso de error"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {section === 'resumen' && (
                 <AdminOverview
                   albums={albums}
@@ -727,6 +842,8 @@ function AdminDashboardContent() {
                   onOpenPreview={() => setPreviewOpen(true)}
                   onPublish={handlePublish}
                   isPublishing={isPublishing}
+                  onCloneAlbum={handleCloneAlbum}
+                  isCloning={isCloning}
                   onCopyUrl={handleCopyUrl}
                 />
               )}

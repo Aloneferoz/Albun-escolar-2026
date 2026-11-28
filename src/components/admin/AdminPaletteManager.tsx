@@ -26,10 +26,12 @@ import {
   DEFAULT_PALETTES,
   DraftAlbum,
   DraftStudent,
+  hasStudentCustomPalette,
   isValidHexColor,
   normalizeHexColor,
   PaletteColors,
   resolveAlbumPalette,
+  resolveStudentEffectivePalette,
   slugify
 } from '../../types/album';
 import { derivePaletteCssVars } from '../../theme/palettes';
@@ -262,13 +264,19 @@ export const AdminPaletteManager: React.FC<AdminPaletteManagerProps> = ({
   const studentAssignmentsByCode = useMemo(() => {
     const map = new Map<string, DraftStudent[]>();
     students.forEach((st) => {
-      if (!st.paleta) return;
-      const list = map.get(st.paleta) || [];
+      if (!hasStudentCustomPalette(st)) return;
+      const effective = resolveStudentEffectivePalette(
+        { paleta: selectedCodigo, paletaConfig: selectedColors },
+        st,
+        catalog
+      );
+      if (!effective.isStudentCustom) return;
+      const list = map.get(effective.codigo) || [];
       list.push(st);
-      map.set(st.paleta, list);
+      map.set(effective.codigo, list);
     });
     return map;
-  }, [students]);
+  }, [students, selectedCodigo, selectedColors, catalog]);
 
   // Destinatario de aplicación en el colegio/evento actual: todo el álbum o alumna(s)/alumno(s) específicos
   const [targetScope, setTargetScope] = useState<'album' | 'students'>('album');
@@ -291,18 +299,24 @@ export const AdminPaletteManager: React.FC<AdminPaletteManagerProps> = ({
 
   // Paleta mostrada en la vista previa según si se inspecciona todo el álbum o un alumno seleccionado
   const previewSubject = useMemo(() => {
+    const generalAlbumLike = {
+      paleta: selectedCodigo,
+      paletaConfig: selectedColors
+    };
     if (targetScope === 'students' && selectedStudentsList.length > 0) {
       const first = selectedStudentsList[0];
-      const resolved = first.paleta
-        ? resolveAlbumPalette(first.paleta, first.paletaConfig, catalog)
-        : resolveAlbumPalette(selectedCodigo, selectedColors, catalog);
+      const resolved = resolveStudentEffectivePalette(
+        generalAlbumLike,
+        first,
+        catalog
+      );
       const label =
         selectedStudentsList.length === 1
           ? `Alumna/o: ${first.nombre}`
           : `${selectedStudentsList.length} alumnas/os seleccionados (${first.nombre}…)`;
       return {
         resolved,
-        isStudentCustom: Boolean(first.paleta),
+        isStudentCustom: resolved.isStudentCustom,
         label,
         previewTitle:
           selectedStudentsList.length === 1
@@ -656,8 +670,16 @@ export const AdminPaletteManager: React.FC<AdminPaletteManagerProps> = ({
         >
           {filteredStudents.map((st) => {
             const isChecked = selectedStudentIds.includes(st.id);
-            const customPaletteName = st.paleta
-              ? paletteNameByCode.get(st.paleta) || st.paleta
+            const hasCustom = hasStudentCustomPalette(st);
+            const effective = resolveStudentEffectivePalette(
+              { paleta: selectedCodigo, paletaConfig: selectedColors },
+              st,
+              catalog
+            );
+            const customPaletteName = hasCustom
+              ? paletteNameByCode.get(effective.codigo) ||
+                effective.palette?.nombre ||
+                effective.codigo
               : null;
             return (
               <div
@@ -688,12 +710,12 @@ export const AdminPaletteManager: React.FC<AdminPaletteManagerProps> = ({
                       {st.nombre}
                     </div>
                     <div className="flex items-center gap-1 text-[10px] text-slate-500 truncate">
-                      {st.paleta && st.paletaConfig ? (
+                      {hasCustom && effective.isStudentCustom ? (
                         <>
                           <span
                             className="w-2 h-2 rounded-full shrink-0 border border-black/15"
                             style={{
-                              backgroundColor: st.paletaConfig.colorPrincipal
+                              backgroundColor: effective.colors.colorPrincipal
                             }}
                           />
                           <span className="truncate font-medium text-[#183a6e]">
@@ -707,7 +729,7 @@ export const AdminPaletteManager: React.FC<AdminPaletteManagerProps> = ({
                   </div>
                 </label>
 
-                {st.paleta && (
+                {hasCustom && (
                   <button
                     type="button"
                     title="Volver a heredar paleta del colegio/evento"
@@ -1223,7 +1245,15 @@ export const AdminPaletteManager: React.FC<AdminPaletteManagerProps> = ({
           const allSelectedStudentsHaveThis =
             targetScope === 'students' &&
             selectedStudentsList.length > 0 &&
-            selectedStudentsList.every((s) => s.paleta === palette.codigo);
+            selectedStudentsList.every((s) => {
+              if (!hasStudentCustomPalette(s)) return false;
+              const eff = resolveStudentEffectivePalette(
+                { paleta: selectedCodigo, paletaConfig: selectedColors },
+                s,
+                catalog
+              );
+              return eff.isStudentCustom && eff.codigo === palette.codigo;
+            });
 
           const isHighlighted =
             targetScope === 'album'

@@ -61,6 +61,11 @@ service cloud.firestore {
              isValidHex(cfg.colorTexto);
     }
 
+    function isValidPaletaOverride(val) {
+      return (val is string && isValidSlug(val) && val.size() >= 3 && val.size() <= 80) ||
+             isValidPaletteConfig(val);
+    }
+
     function isValidColorPalette(data, paletteId) {
       return data.keys().hasAll([
                'codigo', 'nombre',
@@ -172,7 +177,7 @@ service cloud.firestore {
       return data.keys().hasAll(['albumId', 'slug', 'nombre', 'accessToken', 'tokenRevoked', 'status', 'order', 'ownerUid', 'createdAt', 'updatedAt']) &&
              data.keys().hasOnly([
                'albumId', 'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
-               'paleta', 'paletaConfig',
+               'paleta', 'paletaConfig', 'paletaOverride',
                'accessToken', 'tokenRevoked',
                'status', 'order', 'ownerUid', 'createdAt', 'updatedAt'
              ]) &&
@@ -184,6 +189,7 @@ service cloud.firestore {
              (!('parentPhone' in data) || (data.parentPhone is string && data.parentPhone.size() <= 30)) &&
              (!('paleta' in data) || (isValidSlug(data.paleta) && data.paleta.size() >= 3)) &&
              (!('paletaConfig' in data) || isValidPaletteConfig(data.paletaConfig)) &&
+             (!('paletaOverride' in data) || isValidPaletaOverride(data.paletaOverride)) &&
              isValidToken(data.accessToken) &&
              data.tokenRevoked is bool &&
              data.status in ['borrador', 'publicado'] &&
@@ -320,13 +326,13 @@ service cloud.firestore {
                       incoming().updatedAt == request.time &&
                       incoming().diff(existing()).addedKeys().hasOnly([
                         'albumId', 'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
-                        'paleta', 'paletaConfig',
+                        'paleta', 'paletaConfig', 'paletaOverride',
                         'accessToken', 'tokenRevoked',
                         'status', 'order', 'ownerUid', 'createdAt', 'updatedAt'
                       ]) &&
                       incoming().diff(existing()).changedKeys().hasOnly([
                         'albumId', 'slug', 'nombre', 'frase', 'fotoUrl', 'parentPhone',
-                        'paleta', 'paletaConfig',
+                        'paleta', 'paletaConfig', 'paletaOverride',
                         'accessToken', 'tokenRevoked',
                         'status', 'order', 'ownerUid', 'createdAt', 'updatedAt'
                       ]);

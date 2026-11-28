@@ -197,41 +197,191 @@ export function applyPaletteToElement(
   });
 }
 
-export function resolveAlbumPalette(
-  paletaCode?: string | null,
-  paletaConfig?: Partial<PaletteColors> | null,
-  palettes: ColorPalette[] = DEFAULT_PALETTES
-): {
+export interface PaletteStudentLike {
+  paleta?: string | null;
+  paletaConfig?: Partial<PaletteColors> | null;
+  paletaOverride?: string | Partial<PaletteColors> | null;
+}
+
+export interface PaletteAlbumLike {
+  paleta?: string | null;
+  paletaConfig?: Partial<PaletteColors> | null;
+}
+
+export interface ResolvedPaletteResult {
   codigo: string;
   colors: PaletteColors;
   palette?: ColorPalette;
-} {
-  const rawCode = String(paletaCode || DEFAULT_PALETTE_CODE).trim();
-  const normalizedCode = rawCode
+}
+
+export interface ResolvedStudentPaletteResult extends ResolvedPaletteResult {
+  isStudentCustom: boolean;
+}
+
+export function isCompletePaletteColors(
+  colors?: Partial<PaletteColors> | null
+): colors is PaletteColors {
+  return Boolean(
+    colors &&
+      isValidHexColor(colors.colorPrincipal) &&
+      isValidHexColor(colors.colorSecundario) &&
+      isValidHexColor(colors.colorAcento) &&
+      isValidHexColor(colors.colorTexto)
+  );
+}
+
+export function normalizePaletteCode(
+  raw?: string | null
+): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const normalized = trimmed
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60);
-  const code = normalizedCode.length >= 3 ? normalizedCode : DEFAULT_PALETTE_CODE;
-  const found =
-    palettes.find((p) => p.codigo === code) ||
-    DEFAULT_PALETTES.find((p) => p.codigo === code);
-  const defaultPalette =
+  return normalized.length >= 3 ? normalized : undefined;
+}
+
+function getDefaultPaletteFromCatalog(
+  palettes: ColorPalette[] = DEFAULT_PALETTES
+): ColorPalette {
+  return (
     palettes.find((p) => p.esPredeterminada) ||
     palettes.find((p) => p.codigo === DEFAULT_PALETTE_CODE) ||
-    DEFAULT_PALETTES[0];
+    DEFAULT_PALETTES[0]
+  );
+}
+
+function findPaletteByCode(
+  code: string | undefined,
+  palettes: ColorPalette[] = DEFAULT_PALETTES
+): ColorPalette | undefined {
+  if (!code) return undefined;
+  return (
+    palettes.find((p) => p.codigo === code) ||
+    DEFAULT_PALETTES.find((p) => p.codigo === code)
+  );
+}
+
+export function hasStudentCustomPalette(
+  student?: PaletteStudentLike | null
+): boolean {
+  if (!student) return false;
+
+  if (typeof student.paletaOverride === 'string') {
+    if (normalizePaletteCode(student.paletaOverride)) {
+      return true;
+    }
+  } else if (
+    student.paletaOverride &&
+    typeof student.paletaOverride === 'object' &&
+    isCompletePaletteColors(student.paletaOverride)
+  ) {
+    return true;
+  }
+
+  if (normalizePaletteCode(student.paleta)) {
+    return true;
+  }
+
+  // Si paleta fue limpiada explícitamente como string vacío, no heredar paletaConfig obsoleta
+  if (student.paleta === '') {
+    return false;
+  }
 
   if (
-    paletaConfig &&
-    isValidHexColor(paletaConfig.colorPrincipal) &&
-    isValidHexColor(paletaConfig.colorSecundario) &&
-    isValidHexColor(paletaConfig.colorAcento) &&
-    isValidHexColor(paletaConfig.colorTexto)
+    (student.paletaOverride === undefined || student.paletaOverride === null) &&
+    isCompletePaletteColors(student.paletaConfig)
   ) {
+    return true;
+  }
+
+  return false;
+}
+
+function isPaletteStudentInput(
+  value: unknown
+): value is PaletteStudentLike {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      ('paletaOverride' in value ||
+        'paleta' in value ||
+        'id' in value ||
+        'nombre' in value ||
+        'albumId' in value)
+  );
+}
+
+function isPaletteAlbumInput(
+  value: unknown
+): value is PaletteAlbumLike {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      ('paleta' in value || 'colegio' in value || 'paletaConfig' in value)
+  );
+}
+
+export function resolveAlbumPalette(
+  paletaCode?: string | null,
+  paletaConfig?: Partial<PaletteColors> | null,
+  palettes?: ColorPalette[],
+  fallback?: PaletteAlbumLike | null
+): ResolvedPaletteResult;
+export function resolveAlbumPalette(
+  student: PaletteStudentLike | null | undefined,
+  album: PaletteAlbumLike | null | undefined,
+  palettes?: ColorPalette[]
+): ResolvedStudentPaletteResult;
+export function resolveAlbumPalette(
+  codeOrStudent?: string | PaletteStudentLike | null,
+  configOrAlbum?: Partial<PaletteColors> | PaletteAlbumLike | null,
+  palettes: ColorPalette[] = DEFAULT_PALETTES,
+  fallback?: PaletteAlbumLike | null
+): ResolvedPaletteResult | ResolvedStudentPaletteResult {
+  if (
+    isPaletteStudentInput(codeOrStudent) ||
+    ((codeOrStudent === null || codeOrStudent === undefined) &&
+      isPaletteAlbumInput(configOrAlbum) &&
+      'paleta' in configOrAlbum)
+  ) {
+    return resolveStudentEffectivePalette(
+      configOrAlbum as PaletteAlbumLike | null | undefined,
+      codeOrStudent as PaletteStudentLike | null | undefined,
+      palettes
+    );
+  }
+
+  const paletaCode = typeof codeOrStudent === 'string' ? codeOrStudent : undefined;
+  const paletaConfig =
+    configOrAlbum && typeof configOrAlbum === 'object'
+      ? (configOrAlbum as Partial<PaletteColors>)
+      : undefined;
+
+  const code = normalizePaletteCode(paletaCode);
+  const found = findPaletteByCode(code, palettes);
+  const defaultPalette = getDefaultPaletteFromCatalog(palettes);
+
+  // Si la personalización viene vacía/indefinida y existe paleta general de respaldo, devolver la general
+  if (!code && !isCompletePaletteColors(paletaConfig)) {
+    if (fallback && (normalizePaletteCode(fallback.paleta) || isCompletePaletteColors(fallback.paletaConfig))) {
+      return resolveAlbumPalette(fallback.paleta, fallback.paletaConfig, palettes);
+    }
     return {
-      codigo: found ? found.codigo : code,
+      codigo: defaultPalette.codigo,
+      colors: sanitizePaletteColors(defaultPalette),
+      palette: defaultPalette
+    };
+  }
+
+  if (isCompletePaletteColors(paletaConfig)) {
+    return {
+      codigo: found ? found.codigo : code || defaultPalette.codigo,
       colors: sanitizePaletteColors(paletaConfig),
       palette: found
     };
@@ -245,9 +395,112 @@ export function resolveAlbumPalette(
     };
   }
 
+  if (
+    fallback &&
+    (normalizePaletteCode(fallback.paleta) ||
+      isCompletePaletteColors(fallback.paletaConfig))
+  ) {
+    return resolveAlbumPalette(fallback.paleta, fallback.paletaConfig, palettes);
+  }
+
   return {
     codigo: defaultPalette.codigo,
     colors: sanitizePaletteColors(defaultPalette),
     palette: defaultPalette
   };
 }
+
+export function resolveStudentEffectivePalette(
+  album: PaletteAlbumLike | null | undefined,
+  student: PaletteStudentLike | null | undefined,
+  palettes: ColorPalette[] = DEFAULT_PALETTES
+): ResolvedStudentPaletteResult {
+  const general = resolveAlbumPalette(album?.paleta, album?.paletaConfig, palettes);
+
+  if (!student) {
+    return {
+      ...general,
+      isStudentCustom: false
+    };
+  }
+
+  // 1. Prioridad máxima: paletaOverride presente y válida en DraftStudent
+  if (
+    student.paletaOverride &&
+    typeof student.paletaOverride === 'object'
+  ) {
+    if (isCompletePaletteColors(student.paletaOverride)) {
+      const overrideObj = student.paletaOverride as Partial<ColorPalette>;
+      const overrideCode =
+        normalizePaletteCode(overrideObj.codigo) ||
+        normalizePaletteCode(student.paleta) ||
+        'personalizada';
+      const matched = findPaletteByCode(overrideCode, palettes);
+      return {
+        codigo: matched ? matched.codigo : overrideCode,
+        colors: sanitizePaletteColors(student.paletaOverride),
+        palette: matched,
+        isStudentCustom: true
+      };
+    }
+  } else if (typeof student.paletaOverride === 'string') {
+    const overrideCode = normalizePaletteCode(student.paletaOverride);
+    if (overrideCode) {
+      const matched = findPaletteByCode(overrideCode, palettes);
+      if (matched) {
+        return {
+          codigo: matched.codigo,
+          colors: sanitizePaletteColors(matched),
+          palette: matched,
+          isStudentCustom: true
+        };
+      }
+      if (isCompletePaletteColors(student.paletaConfig)) {
+        return {
+          codigo: overrideCode,
+          colors: sanitizePaletteColors(student.paletaConfig),
+          isStudentCustom: true
+        };
+      }
+    }
+  }
+
+  // 2. Campo individual estándar: paleta + paletaConfig del estudiante
+  const studentCode = normalizePaletteCode(student.paleta);
+  if (studentCode) {
+    const matched = findPaletteByCode(studentCode, palettes);
+    if (isCompletePaletteColors(student.paletaConfig)) {
+      return {
+        codigo: matched ? matched.codigo : studentCode,
+        colors: sanitizePaletteColors(student.paletaConfig),
+        palette: matched,
+        isStudentCustom: true
+      };
+    }
+    if (matched) {
+      return {
+        codigo: matched.codigo,
+        colors: sanitizePaletteColors(matched),
+        palette: matched,
+        isStudentCustom: true
+      };
+    }
+  } else if (
+    student.paleta !== '' &&
+    (student.paletaOverride === undefined || student.paletaOverride === null) &&
+    isCompletePaletteColors(student.paletaConfig)
+  ) {
+    return {
+      codigo: 'personalizada',
+      colors: sanitizePaletteColors(student.paletaConfig),
+      isStudentCustom: true
+    };
+  }
+
+  // 3. Sin personalización válida -> heredar automáticamente la paleta general del álbum
+  return {
+    ...general,
+    isStudentCustom: false
+  };
+}
+

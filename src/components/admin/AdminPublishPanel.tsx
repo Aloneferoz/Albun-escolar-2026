@@ -35,6 +35,8 @@ interface AdminPublishPanelProps {
   onOpenPreview: () => void;
   onPublish: (status?: PublishStatus) => Promise<void>;
   isPublishing: boolean;
+  onCloneAlbum?: () => Promise<void>;
+  isCloning?: boolean;
   onCopyUrl: (url: string, label?: string) => void;
 }
 
@@ -46,6 +48,8 @@ export const AdminPublishPanel: React.FC<AdminPublishPanelProps> = ({
   onOpenPreview,
   onPublish,
   isPublishing,
+  onCloneAlbum,
+  isCloning = false,
   onCopyUrl
 }) => {
   const [whatsappTexto, setWhatsappTexto] = useState(
@@ -383,6 +387,28 @@ export const AdminPublishPanel: React.FC<AdminPublishPanelProps> = ({
           </div>
         </form>
       </div>
+
+      {onCloneAlbum && (
+        <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Clonado limpio de respaldo
+            </h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Crea una copia normalizada de este álbum y sus alumnos en un documento nuevo (conservando el actual sin borrar nada). Útil si un documento antiguo presenta restricciones al actualizarse.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={isCloning || isPublishing}
+            onClick={() => void onCloneAlbum()}
+            className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-60 text-slate-800 text-xs font-semibold shrink-0 cursor-pointer"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            {isCloning ? 'Clonando álbum...' : 'Clonar en documento limpio'}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -3,21 +3,40 @@ import {
   DEFAULT_PALETTE_CODE,
   DEFAULT_PALETTE_COLORS,
   DEFAULT_PALETTES,
+  hasStudentCustomPalette,
+  isCompletePaletteColors,
   isValidHexColor,
   normalizeHexColor,
+  normalizePaletteCode,
+  PaletteAlbumLike,
   PaletteColors,
+  PaletteStudentLike,
   resolveAlbumPalette,
+  ResolvedPaletteResult,
+  ResolvedStudentPaletteResult,
+  resolveStudentEffectivePalette,
   sanitizePaletteColors
 } from '../theme/palettes';
 
-export type { ColorPalette, PaletteColors };
+export type {
+  ColorPalette,
+  PaletteAlbumLike,
+  PaletteColors,
+  PaletteStudentLike,
+  ResolvedPaletteResult,
+  ResolvedStudentPaletteResult
+};
 export {
   DEFAULT_PALETTE_CODE,
   DEFAULT_PALETTE_COLORS,
   DEFAULT_PALETTES,
+  hasStudentCustomPalette,
+  isCompletePaletteColors,
   isValidHexColor,
   normalizeHexColor,
+  normalizePaletteCode,
   resolveAlbumPalette,
+  resolveStudentEffectivePalette,
   sanitizePaletteColors
 };
 
@@ -95,6 +114,7 @@ export interface DraftStudent {
   parentPhone: string;
   paleta?: PaletaVisual;
   paletaConfig?: PaletteColors;
+  paletaOverride?: PaletaVisual | PaletteColors | null;
   accessToken: string;
   tokenRevoked: boolean;
   status: PublishStatus;
@@ -248,12 +268,36 @@ export function sanitizeFotoItem(item: FotoItem): FotoItem {
 }
 
 export function sanitizeVideoItem(item: VideoItem): VideoItem {
-  const embedUrl =
-    clampStr(item.embedUrl, BLUEPRINT_LIMITS.URL_MAX) ||
-    'https://youtu.be/5AM6ecA8zrk';
+  let rawUrl = clampStr(item.embedUrl, BLUEPRINT_LIMITS.URL_MAX);
+
+  // Si no hay URL, usamos el video por defecto
+  if (!rawUrl) {
+    rawUrl = 'https://youtu.be/5AM6ecA8zrk';
+  }
+
+  // 1. Limpiamos la URL: quitamos parámetros como ?si=...
+  const cleanUrl = rawUrl.split('?')[0];
+  let videoId = '';
+
+  // 2. Extraemos el ID del video sin importar el formato
+  if (cleanUrl.includes('youtu.be/')) {
+    videoId = cleanUrl.split('youtu.be/')[1];
+  } else if (cleanUrl.includes('youtube.com/watch')) {
+    videoId = cleanUrl.split('v=')[1];
+  } else if (cleanUrl.includes('youtube.com/embed/')) {
+    videoId = cleanUrl.split('embed/')[1];
+  } else {
+    // Si es un ID suelto (ej. solo "WYPdbtFc84E")
+    videoId = cleanUrl; 
+  }
+
+  // 3. Forzamos el formato embed que los iframes sí aceptan
+  const embedUrl = `https://www.youtube.com/embed/${videoId}`;
+  
   const portadaFallback =
     getYouTubeThumbnailUrl(embedUrl) ||
     '/src/assets/images/foto_ceremonia_1795554404001.jpg';
+
   return {
     titulo:
       clampStr(item.titulo, BLUEPRINT_LIMITS.VIDEO_TITULO_MAX) ||
@@ -265,7 +309,7 @@ export function sanitizeVideoItem(item: VideoItem): VideoItem {
       item.portadaUrl || portadaFallback,
       BLUEPRINT_LIMITS.URL_MAX
     ),
-    embedUrl
+    embedUrl // Ahora siempre será https://www.youtube.com/embed/ID
   };
 }
 

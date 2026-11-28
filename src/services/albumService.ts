@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   onSnapshot,
   orderBy,
@@ -9,6 +10,7 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
+  updateDoc,
   where,
   writeBatch
 } from 'firebase/firestore';
@@ -31,17 +33,23 @@ import {
   DEFAULT_PALETTES,
   DraftAlbum,
   DraftStudent,
+  FotoItem,
   generateAccessToken,
+  hasStudentCustomPalette,
+  isCompletePaletteColors,
   isValidAccessToken,
   isValidHexColor,
+  normalizePaletteCode,
   PaletteColors,
   PublicStudentCard,
   PublishStatus,
   resolveAlbumPalette,
+  resolveStudentEffectivePalette,
   sanitizeFotoItem,
   sanitizePaletteColors,
   sanitizeVideoItem,
-  slugify
+  slugify,
+  VideoItem
 } from '../types/album';
 
 function parsePaletteConfig(raw: unknown): PaletteColors | undefined {
@@ -56,6 +64,55 @@ function parsePaletteConfig(raw: unknown): PaletteColors | undefined {
     return sanitizePaletteColors(obj);
   }
   return undefined;
+}
+
+function parsePaletaOverride(
+  raw: unknown
+): string | PaletteColors | undefined {
+  if (typeof raw === 'string') {
+    return normalizePaletteCode(raw);
+  }
+  return parsePaletteConfig(raw);
+}
+
+export async function fetchPalettesCatalogSafe(): Promise<ColorPalette[]> {
+  try {
+    const snap = await getDocs(collection(db, 'palettes'));
+    if (snap.empty) return DEFAULT_PALETTES;
+
+    const byCode = new Map<string, ColorPalette>();
+    DEFAULT_PALETTES.forEach((p) => byCode.set(p.codigo, p));
+
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      const code = String(data.codigo || d.id);
+      const safeColors = sanitizePaletteColors({
+        colorPrincipal: String(data.colorPrincipal || ''),
+        colorSecundario: String(data.colorSecundario || ''),
+        colorAcento: String(data.colorAcento || ''),
+        colorTexto: String(data.colorTexto || '')
+      });
+      byCode.set(code, {
+        codigo: code,
+        nombre: String(data.nombre || code),
+        descripcion: String(data.descripcion || ''),
+        ...safeColors,
+        activa: data.activa !== false,
+        esPredeterminada: Boolean(data.esPredeterminada),
+        ownerUid: String(data.ownerUid || ''),
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt
+      });
+    });
+
+    return Array.from(byCode.values()).sort((a, b) => {
+      if (a.esPredeterminada && !b.esPredeterminada) return -1;
+      if (!a.esPredeterminada && b.esPredeterminada) return 1;
+      return a.nombre.localeCompare(b.nombre, 'es');
+    });
+  } catch {
+    return DEFAULT_PALETTES;
+  }
 }
 
 function getCurrentUidFallback(explicitUid?: string): string {
@@ -81,19 +138,152 @@ function resolvePreservedOwnerUid(
   return getCurrentUidFallback(fallbackUid);
 }
 
+function isFirestoreTimestampLike(value: unknown): value is Timestamp {
+  if (value instanceof Timestamp) return true;
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as {
+    seconds?: unknown;
+    nanoseconds?: unknown;
+    toMillis?: unknown;
+  };
+  return (
+    typeof candidate.toMillis === 'function' ||
+    (typeof candidate.seconds === 'number' &&
+      typeof candidate.nanoseconds === 'number')
+  );
+}
+
 function resolvePreservedCreatedAt(
   existingData: Record<string, unknown> | undefined
 ) {
-  return existingData?.createdAt instanceof Timestamp
+  return isFirestoreTimestampLike(existingData?.createdAt)
     ? existingData.createdAt
     : serverTimestamp();
+}
+
+const ALLOWED_DRAFT_ALBUM_KEYS = new Set<string>([
+  'slug',
+  'colegio',
+  'promocion',
+  'nivel',
+  'anio',
+  'paleta',
+  'paletaConfig',
+  'portadaUrl',
+  'musicaUrl',
+  'whatsappTexto',
+  'tutoraTitulo',
+  'tutoraNombre',
+  'tutoraCargo',
+  'tutoraFotoUrl',
+  'tutoraTexto',
+  'fotos',
+  'videos',
+  'allowGroupAnuario',
+  'generalShareEnabled',
+  'generalAccessToken',
+  'generalTokenRevoked',
+  'status',
+  'ownerUid',
+  'hasUnpublishedChanges',
+  'createdAt',
+  'updatedAt'
+]);
+
+function canSafelyUpdateExistingAlbum(
+  existingData: Record<string, unknown> | undefined
+): existingData is Record<string, unknown> {
+  if (!existingData) return false;
+  const keys = Object.keys(existingData);
+  if (keys.some((k) => !ALLOWED_DRAFT_ALBUM_KEYS.has(k))) {
+    return false;
+  }
+  const hasValidOwner =
+    typeof existingData.ownerUid === 'string' &&
+    existingData.ownerUid.length >= 1 &&
+    existingData.ownerUid.length <= 128;
+  const hasValidCreatedAt = isFirestoreTimestampLike(existingData.createdAt);
+  return hasValidOwner && hasValidCreatedAt;
+}
+
+function buildMutableAlbumFields(
+  albumId: string,
+  existingData: Record<string, unknown> | undefined,
+  overrides: Record<string, unknown> = {},
+  palettes: ColorPalette[] = DEFAULT_PALETTES
+): Record<string, unknown> {
+  const full = buildNormalizedAlbumPayload(
+    albumId,
+    existingData,
+    undefined,
+    overrides,
+    palettes
+  );
+  const { ownerUid: _ownerUid, createdAt: _createdAt, ...mutableFields } = full;
+  return mutableFields;
+}
+
+async function writeAlbumUpdateOrRepair(
+  albumRef: ReturnType<typeof doc>,
+  albumId: string,
+  existingData: Record<string, unknown> | undefined,
+  fallbackUid: string | undefined,
+  overrides: Record<string, unknown> = {},
+  palettes: ColorPalette[] = DEFAULT_PALETTES
+): Promise<void> {
+  if (canSafelyUpdateExistingAlbum(existingData)) {
+    await updateDoc(
+      albumRef,
+      buildMutableAlbumFields(albumId, existingData, overrides, palettes)
+    );
+    return;
+  }
+  await setDoc(
+    albumRef,
+    buildNormalizedAlbumPayload(
+      albumId,
+      existingData,
+      fallbackUid,
+      overrides,
+      palettes
+    )
+  );
+}
+
+function batchAlbumUpdateOrRepair(
+  batch: ReturnType<typeof writeBatch>,
+  albumRef: ReturnType<typeof doc>,
+  albumId: string,
+  existingData: Record<string, unknown> | undefined,
+  fallbackUid: string | undefined,
+  overrides: Record<string, unknown> = {},
+  palettes: ColorPalette[] = DEFAULT_PALETTES
+): void {
+  if (canSafelyUpdateExistingAlbum(existingData)) {
+    batch.update(
+      albumRef,
+      buildMutableAlbumFields(albumId, existingData, overrides, palettes)
+    );
+    return;
+  }
+  batch.set(
+    albumRef,
+    buildNormalizedAlbumPayload(
+      albumId,
+      existingData,
+      fallbackUid,
+      overrides,
+      palettes
+    )
+  );
 }
 
 function buildNormalizedAlbumPayload(
   albumId: string,
   existingData: Record<string, unknown> | undefined,
   fallbackUid: string | undefined,
-  overrides: Record<string, unknown> = {}
+  overrides: Record<string, unknown> = {},
+  palettes: ColorPalette[] = DEFAULT_PALETTES
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = {
     ...(existingData || {}),
@@ -132,7 +322,8 @@ function buildNormalizedAlbumPayload(
 
   const resolvedPaleta = resolveAlbumPalette(
     typeof merged.paleta === 'string' ? merged.paleta : undefined,
-    parsePaletteConfig(merged.paletaConfig)
+    parsePaletteConfig(merged.paletaConfig),
+    palettes
   );
 
   const rawFotos = Array.isArray(merged.fotos) ? merged.fotos : [];
@@ -235,12 +426,19 @@ function buildNormalizedStudentPayload(
   studentId: string,
   existingData: Record<string, unknown> | undefined,
   fallbackUid: string | undefined,
-  overrides: Record<string, unknown> & { clearPaleta?: boolean } = {}
+  overrides: Record<string, unknown> & { clearPaleta?: boolean } = {},
+  palettes: ColorPalette[] = DEFAULT_PALETTES
 ): Record<string, unknown> {
   const { clearPaleta, ...restOverrides } = overrides;
+  const definedOverrides: Record<string, unknown> = {};
+  Object.entries(restOverrides).forEach(([key, val]) => {
+    if (val !== undefined) {
+      definedOverrides[key] = val;
+    }
+  });
   const merged: Record<string, unknown> = {
     ...(existingData || {}),
-    ...restOverrides
+    ...definedOverrides
   };
 
   const rawNombre = clampStr(
@@ -289,17 +487,35 @@ function buildNormalizedStudentPayload(
     updatedAt: serverTimestamp()
   };
 
-  if (
-    !clearPaleta &&
-    typeof merged.paleta === 'string' &&
-    merged.paleta.trim().length >= BLUEPRINT_LIMITS.PALETTE_CODE_MIN
-  ) {
-    const resolved = resolveAlbumPalette(
-      merged.paleta,
-      parsePaletteConfig(merged.paletaConfig)
-    );
-    payload.paleta = resolved.codigo;
-    payload.paletaConfig = resolved.colors;
+  if (!clearPaleta) {
+    const parsedOverride = parsePaletaOverride(merged.paletaOverride);
+    const studentPaletteCandidate = {
+      paleta: typeof merged.paleta === 'string' ? merged.paleta : undefined,
+      paletaConfig: parsePaletteConfig(merged.paletaConfig),
+      paletaOverride: parsedOverride
+    };
+    if (hasStudentCustomPalette(studentPaletteCandidate)) {
+      const resolved = resolveStudentEffectivePalette(
+        { paleta: DEFAULT_PALETTE_CODE, paletaConfig: DEFAULT_PALETTE_COLORS },
+        studentPaletteCandidate,
+        palettes
+      );
+      if (resolved.isStudentCustom) {
+        const cleanSlugCode = slugify(
+          resolved.codigo,
+          BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+        ).slice(0, BLUEPRINT_LIMITS.PALETTE_CODE_MAX);
+        payload.paleta = cleanSlugCode;
+        payload.paletaConfig = resolved.colors;
+        payload.paletaOverride =
+          typeof parsedOverride === 'string'
+            ? slugify(parsedOverride, BLUEPRINT_LIMITS.PALETTE_CODE_MIN).slice(
+                0,
+                BLUEPRINT_LIMITS.PALETTE_CODE_MAX
+              )
+            : resolved.colors;
+      }
+    }
   }
 
   return payload;
@@ -413,6 +629,7 @@ export function subscribeDraftStudents(
               ? data.paleta.trim()
               : undefined,
           paletaConfig: parsePaletteConfig(data.paletaConfig),
+          paletaOverride: parsePaletaOverride(data.paletaOverride),
           accessToken: String(data.accessToken || ''),
           tokenRevoked: Boolean(data.tokenRevoked),
           status: (data.status as PublishStatus) || 'publicado',
@@ -620,20 +837,34 @@ export async function saveColorPalette(
         })
       );
 
+      const catalog = await fetchPalettesCatalogSafe();
+      const updatedCatalog = catalog.map((item) =>
+        item.codigo === cleanCodigo
+          ? {
+              ...item,
+              nombre: cleanNombre,
+              descripcion: cleanDesc,
+              ...cleanColors,
+              activa: isDefaultCode ? true : Boolean(input.activa),
+              esPredeterminada: Boolean(input.esPredeterminada || isDefaultCode)
+            }
+          : item
+      );
+
       assignedSet.forEach((albumId) => {
         touchedAlbums.add(albumId);
-        batch.set(
+        batchAlbumUpdateOrRepair(
+          batch,
           doc(db, 'albums', albumId),
-          buildNormalizedAlbumPayload(
-            albumId,
-            albumSnapsMap.get(albumId),
-            ownerUid,
-            {
-              paleta: cleanCodigo,
-              paletaConfig: cleanColors,
-              hasUnpublishedChanges: true
-            }
-          )
+          albumId,
+          albumSnapsMap.get(albumId),
+          ownerUid,
+          {
+            paleta: cleanCodigo,
+            paletaConfig: cleanColors,
+            hasUnpublishedChanges: true
+          },
+          updatedCatalog
         );
       });
 
@@ -649,22 +880,29 @@ export async function saveColorPalette(
           studentSnap.docs.forEach((sd) => {
             batch.set(
               sd.ref,
-              buildNormalizedStudentPayload(albId, sd.id, sd.data(), ownerUid, {
-                paleta: cleanCodigo,
-                paletaConfig: cleanColors
-              })
+              buildNormalizedStudentPayload(
+                albId,
+                sd.id,
+                sd.data(),
+                ownerUid,
+                {
+                  paleta: cleanCodigo,
+                  paletaConfig: cleanColors
+                },
+                updatedCatalog
+              )
             );
           });
           if (!touchedAlbums.has(albId)) {
             touchedAlbums.add(albId);
-            batch.set(
+            batchAlbumUpdateOrRepair(
+              batch,
               doc(db, 'albums', albId),
-              buildNormalizedAlbumPayload(
-                albId,
-                albumSnapsMap.get(albId),
-                ownerUid,
-                { hasUnpublishedChanges: true }
-              )
+              albId,
+              albumSnapsMap.get(albId),
+              ownerUid,
+              { hasUnpublishedChanges: true },
+              updatedCatalog
             );
           }
         }
@@ -734,18 +972,17 @@ export async function deleteColorPalette(
     // Reasignar los álbumes afectados a la paleta predeterminada sin alterar fotos, videos ni alumnos
     assignedAlbumIds.forEach((albumId) => {
       touchedAlbums.add(albumId);
-      batch.set(
+      batchAlbumUpdateOrRepair(
+        batch,
         doc(db, 'albums', albumId),
-        buildNormalizedAlbumPayload(
-          albumId,
-          albumSnapsMap.get(albumId),
-          fallbackUid,
-          {
-            paleta: DEFAULT_PALETTE_CODE,
-            paletaConfig: DEFAULT_PALETTE_COLORS,
-            hasUnpublishedChanges: true
-          }
-        )
+        albumId,
+        albumSnapsMap.get(albumId),
+        fallbackUid,
+        {
+          paleta: DEFAULT_PALETTE_CODE,
+          paletaConfig: DEFAULT_PALETTE_COLORS,
+          hasUnpublishedChanges: true
+        }
       );
     });
 
@@ -768,14 +1005,13 @@ export async function deleteColorPalette(
         });
         if (!touchedAlbums.has(albId)) {
           touchedAlbums.add(albId);
-          batch.set(
+          batchAlbumUpdateOrRepair(
+            batch,
             doc(db, 'albums', albId),
-            buildNormalizedAlbumPayload(
-              albId,
-              albumSnapsMap.get(albId),
-              fallbackUid,
-              { hasUnpublishedChanges: true }
-            )
+            albId,
+            albumSnapsMap.get(albId),
+            fallbackUid,
+            { hasUnpublishedChanges: true }
           );
         }
       }
@@ -809,50 +1045,70 @@ export async function assignPaletteTargets(
       );
     }
 
+    const catalog = await fetchPalettesCatalogSafe();
     const albumRef = doc(db, 'albums', albumId);
     const albumSnap = await getDoc(albumRef);
     const existingAlbumData = albumSnap.exists() ? albumSnap.data() : undefined;
 
-    const batch = writeBatch(db);
     if (target.scope === 'album') {
-      batch.set(
+      await writeAlbumUpdateOrRepair(
         albumRef,
-        buildNormalizedAlbumPayload(albumId, existingAlbumData, fallbackUid, {
+        albumId,
+        existingAlbumData,
+        fallbackUid,
+        {
           paleta: cleanCode,
           paletaConfig: cleanColors,
           hasUnpublishedChanges: true
-        })
+        },
+        catalog
       );
     } else {
+      const uniqueStudentIds = Array.from(new Set(target.studentIds));
       const studentSnaps = await Promise.all(
-        target.studentIds.map((studentId) =>
+        uniqueStudentIds.map((studentId) =>
           getDoc(doc(db, 'albums', albumId, 'students', studentId))
         )
       );
-      studentSnaps.forEach((stSnap) => {
-        if (!stSnap.exists()) return;
-        batch.set(
-          stSnap.ref,
-          buildNormalizedStudentPayload(
-            albumId,
-            stSnap.id,
-            stSnap.data(),
-            fallbackUid,
-            {
-              paleta: cleanCode,
-              paletaConfig: cleanColors
-            }
-          )
-        );
-      });
-      batch.set(
+      const validSnaps = studentSnaps.filter((s) => s.exists());
+      const CHUNK_SIZE = 12;
+
+      currentPath = `albums/${albumId}/students`;
+      for (let i = 0; i < validSnaps.length; i += CHUNK_SIZE) {
+        const chunk = validSnaps.slice(i, i + CHUNK_SIZE);
+        const stBatch = writeBatch(db);
+        chunk.forEach((stSnap) => {
+          stBatch.set(
+            stSnap.ref,
+            buildNormalizedStudentPayload(
+              albumId,
+              stSnap.id,
+              stSnap.data(),
+              fallbackUid,
+              {
+                paleta: cleanCode,
+                paletaConfig: cleanColors,
+                paletaOverride: cleanColors
+              },
+              catalog
+            )
+          );
+        });
+        await stBatch.commit();
+      }
+
+      currentPath = `albums/${albumId}`;
+      await writeAlbumUpdateOrRepair(
         albumRef,
-        buildNormalizedAlbumPayload(albumId, existingAlbumData, fallbackUid, {
+        albumId,
+        existingAlbumData,
+        fallbackUid,
+        {
           hasUnpublishedChanges: true
-        })
+        },
+        catalog
       );
     }
-    await batch.commit();
   } catch (error) {
     if (
       error instanceof Error &&
@@ -873,9 +1129,10 @@ export async function clearStudentPaletteOverride(
   try {
     const albumRef = doc(db, 'albums', albumId);
     const studentRef = doc(db, 'albums', albumId, 'students', studentId);
-    const [albumSnap, studentSnap] = await Promise.all([
+    const [albumSnap, studentSnap, catalog] = await Promise.all([
       getDoc(albumRef),
-      getDoc(studentRef)
+      getDoc(studentRef),
+      fetchPalettesCatalogSafe()
     ]);
 
     const batch = writeBatch(db);
@@ -887,18 +1144,19 @@ export async function clearStudentPaletteOverride(
           studentId,
           studentSnap.data(),
           fallbackUid,
-          { clearPaleta: true }
+          { clearPaleta: true },
+          catalog
         )
       );
     }
-    batch.set(
+    batchAlbumUpdateOrRepair(
+      batch,
       albumRef,
-      buildNormalizedAlbumPayload(
-        albumId,
-        albumSnap.exists() ? albumSnap.data() : undefined,
-        fallbackUid,
-        { hasUnpublishedChanges: true }
-      )
+      albumId,
+      albumSnap.exists() ? albumSnap.data() : undefined,
+      fallbackUid,
+      { hasUnpublishedChanges: true },
+      catalog
     );
     await batch.commit();
   } catch (error) {
@@ -1190,22 +1448,44 @@ export async function updateDraftAlbum(
     overrides.generalTokenRevoked = Boolean(patch.generalTokenRevoked);
   }
   if (patch.status !== undefined) overrides.status = patch.status;
-
+  overrides.updatedAt = serverTimestamp();
   try {
     const albumRef = doc(db, 'albums', albumId);
-    const albumSnap = await getDoc(albumRef);
-    await setDoc(
+    const [albumSnap, catalog] = await Promise.all([
+      getDoc(albumRef),
+      fetchPalettesCatalogSafe()
+    ]);
+    await writeAlbumUpdateOrRepair(
       albumRef,
-      buildNormalizedAlbumPayload(
-        albumId,
-        albumSnap.exists() ? albumSnap.data() : undefined,
-        getCurrentUidFallback(),
-        overrides
-      )
+      albumId,
+      albumSnap.exists() ? albumSnap.data() : undefined,
+      getCurrentUidFallback(),
+      overrides,
+      catalog
     );
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
+}
+
+function arePaletaOverridesEqual(
+  a: string | PaletteColors | undefined | null,
+  b: string | PaletteColors | undefined | null
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a.trim().toLowerCase() === b.trim().toLowerCase();
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    return (
+      a.colorPrincipal.toLowerCase() === b.colorPrincipal.toLowerCase() &&
+      a.colorSecundario.toLowerCase() === b.colorSecundario.toLowerCase() &&
+      a.colorAcento.toLowerCase() === b.colorAcento.toLowerCase() &&
+      a.colorTexto.toLowerCase() === b.colorTexto.toLowerCase()
+    );
+  }
+  return false;
 }
 
 export async function upsertDraftStudent(
@@ -1220,6 +1500,7 @@ export async function upsertDraftStudent(
     parentPhone: string;
     paleta?: string | null;
     paletaConfig?: PaletteColors;
+    paletaOverride?: string | PaletteColors | null;
     accessToken?: string;
     tokenRevoked?: boolean;
     status: PublishStatus;
@@ -1244,22 +1525,50 @@ export async function upsertDraftStudent(
     const batch = writeBatch(db);
     const studentRef = doc(db, 'albums', albumId, 'students', targetId);
     const albumRef = doc(db, 'albums', albumId);
-    const [albumSnap, existingStudentSnap] = await Promise.all([
+    const [albumSnap, existingStudentSnap, catalog] = await Promise.all([
       getDoc(albumRef),
-      studentId ? getDoc(studentRef) : Promise.resolve(null)
+      studentId ? getDoc(studentRef) : Promise.resolve(null),
+      fetchPalettesCatalogSafe()
     ]);
+
+    const existingStudentData = existingStudentSnap?.exists()
+      ? existingStudentSnap.data()
+      : undefined;
+    const previousPaletaOverride = parsePaletaOverride(
+      existingStudentData?.paletaOverride
+    );
 
     const safeOrder = Math.max(
       0,
       Math.min(BLUEPRINT_LIMITS.ORDER_MAX, Number(input.order) || 0)
     );
 
-    const hasCustomPalette =
-      typeof input.paleta === 'string' &&
-      input.paleta.trim().length >= BLUEPRINT_LIMITS.PALETTE_CODE_MIN;
-    const resolvedStudentPalette = hasCustomPalette
-      ? resolveAlbumPalette(input.paleta as string, input.paletaConfig)
+    const candidate = {
+      paleta: input.paleta,
+      paletaConfig: input.paletaConfig,
+      paletaOverride: input.paletaOverride
+    };
+    const isCustom = hasStudentCustomPalette(candidate);
+    const resolvedStudentPalette = isCustom
+      ? resolveStudentEffectivePalette(
+          { paleta: DEFAULT_PALETTE_CODE, paletaConfig: DEFAULT_PALETTE_COLORS },
+          candidate,
+          catalog
+        )
       : null;
+
+    const normalizedInputOverride = parsePaletaOverride(input.paletaOverride);
+    const computedOverrideValue =
+      resolvedStudentPalette && resolvedStudentPalette.isStudentCustom
+        ? typeof normalizedInputOverride === 'string'
+          ? slugify(
+              normalizedInputOverride,
+              BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+            ).slice(0, BLUEPRINT_LIMITS.PALETTE_CODE_MAX)
+          : resolvedStudentPalette.colors
+        : undefined;
+
+    let writtenStudentPayload: Record<string, unknown>;
 
     if (studentId) {
       const overrides: Record<string, unknown> & { clearPaleta?: boolean } = {
@@ -1276,24 +1585,31 @@ export async function upsertDraftStudent(
         status: input.status,
         order: safeOrder
       };
-      if (resolvedStudentPalette) {
+
+      const explicitOverrideClear =
+        input.paletaOverride === null || input.paletaOverride === '';
+      const legacyPaletteClear =
+        input.paletaOverride === undefined &&
+        (input.paleta === null || input.paleta === '') &&
+        !previousPaletaOverride;
+
+      if (resolvedStudentPalette && resolvedStudentPalette.isStudentCustom) {
         overrides.paleta = resolvedStudentPalette.codigo;
         overrides.paletaConfig = resolvedStudentPalette.colors;
-      } else if (input.paleta === null || input.paleta === '') {
+        overrides.paletaOverride = computedOverrideValue;
+      } else if (explicitOverrideClear || legacyPaletteClear) {
         overrides.clearPaleta = true;
       }
-      batch.set(
-        studentRef,
-        buildNormalizedStudentPayload(
-          albumId,
-          targetId,
-          existingStudentSnap?.exists()
-            ? existingStudentSnap.data()
-            : undefined,
-          ownerUid,
-          overrides
-        )
+
+      writtenStudentPayload = buildNormalizedStudentPayload(
+        albumId,
+        targetId,
+        existingStudentData,
+        ownerUid,
+        overrides,
+        catalog
       );
+      batch.set(studentRef, writtenStudentPayload);
     } else {
       const createPayload: Record<string, unknown> = {
         albumId,
@@ -1313,24 +1629,88 @@ export async function upsertDraftStudent(
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
-      if (resolvedStudentPalette) {
-        createPayload.paleta = resolvedStudentPalette.codigo;
+      if (resolvedStudentPalette && resolvedStudentPalette.isStudentCustom) {
+        createPayload.paleta = slugify(
+          resolvedStudentPalette.codigo,
+          BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+        ).slice(0, BLUEPRINT_LIMITS.PALETTE_CODE_MAX);
         createPayload.paletaConfig = resolvedStudentPalette.colors;
+        createPayload.paletaOverride = computedOverrideValue;
       }
+      writtenStudentPayload = createPayload;
       batch.set(studentRef, createPayload);
     }
 
-    batch.set(
+    batchAlbumUpdateOrRepair(
+      batch,
       albumRef,
-      buildNormalizedAlbumPayload(
-        albumId,
-        albumSnap.exists() ? albumSnap.data() : undefined,
-        ownerUid,
-        { hasUnpublishedChanges: true }
-      )
+      albumId,
+      albumSnap.exists() ? albumSnap.data() : undefined,
+      ownerUid,
+      { hasUnpublishedChanges: true },
+      catalog
     );
 
     await batch.commit();
+
+    // Verificación y log de depuración tras persistir en Firestore
+    try {
+      const persistedSnap = await getDoc(studentRef);
+      const persistedData = persistedSnap.exists()
+        ? persistedSnap.data()
+        : undefined;
+      const expectedOverride = parsePaletaOverride(
+        writtenStudentPayload.paletaOverride
+      );
+      const persistedOverride = parsePaletaOverride(
+        persistedData?.paletaOverride
+      );
+      const isExpectedClear =
+        input.paletaOverride === null ||
+        input.paletaOverride === '' ||
+        (input.paletaOverride === undefined &&
+          (input.paleta === null || input.paleta === '') &&
+          !previousPaletaOverride);
+      const persistedIntact = arePaletaOverridesEqual(
+        expectedOverride,
+        persistedOverride
+      );
+      const preservedAcrossNonPaletteUpdate =
+        !isExpectedClear && previousPaletaOverride !== undefined
+          ? arePaletaOverridesEqual(previousPaletaOverride, persistedOverride)
+          : true;
+
+      const debugDetails = {
+        albumId,
+        studentId: targetId,
+        mode: studentId ? 'update' : 'create',
+        previousPaletaOverride: previousPaletaOverride ?? null,
+        inputPaletaOverride:
+          input.paletaOverride === undefined ? '(omitido)' : input.paletaOverride,
+        writtenPaletaOverride: expectedOverride ?? null,
+        persistedPaletaOverride: persistedOverride ?? null,
+        persistedIntact,
+        preservedAcrossNonPaletteUpdate
+      };
+
+      if (!persistedIntact || !preservedAcrossNonPaletteUpdate) {
+        console.error(
+          '[upsertDraftStudent][paletaOverride] ALERTA: discrepancia o pérdida al persistir paletaOverride en Firestore',
+          debugDetails
+        );
+      } else {
+        console.info(
+          '[upsertDraftStudent][paletaOverride] Persistencia verificada en Firestore',
+          debugDetails
+        );
+      }
+    } catch (verifyError) {
+      console.warn(
+        '[upsertDraftStudent][paletaOverride] No se pudo re-leer el documento para log de depuración:',
+        verifyError
+      );
+    }
+
     return targetId;
   } catch (error) {
     handleFirestoreError(
@@ -1339,6 +1719,108 @@ export async function upsertDraftStudent(
       path
     );
   }
+}
+
+/**
+ * Función de prueba determinista para verificar que `paletaOverride` se construye
+ * íntegramente y no se sobrescribe ni se limpia accidentalmente ante actualizaciones
+ * posteriores de otros campos del `DraftStudent`.
+ */
+export function testStudentPaletaOverrideIntegrity(
+  palettes: ColorPalette[] = DEFAULT_PALETTES
+): {
+  passed: boolean;
+  steps: Array<{ name: string; passed: boolean; paletaOverride: unknown }>;
+} {
+  const customOverride: PaletteColors = {
+    colorPrincipal: '#6e1d36',
+    colorSecundario: '#f5ebe8',
+    colorAcento: '#c4933b',
+    colorTexto: '#26181d'
+  };
+
+  // Paso 1: Guardar paleta personalizada en paletaOverride
+  const initialDoc = buildNormalizedStudentPayload(
+    'album-test',
+    'student-test',
+    undefined,
+    'admin-uid',
+    {
+      nombre: 'Valeria Sofía',
+      frase: 'Recuerdo de promoción',
+      paleta: 'gala-vino-marfil',
+      paletaConfig: customOverride,
+      paletaOverride: customOverride,
+      status: 'publicado',
+      order: 1
+    },
+    palettes
+  );
+  const step1Passed = arePaletaOverridesEqual(
+    parsePaletaOverride(initialDoc.paletaOverride),
+    customOverride
+  );
+
+  // Paso 2: Actualización de otros campos (nombre/frase/order) omitiendo paletaOverride (undefined)
+  const afterMetadataUpdate = buildNormalizedStudentPayload(
+    'album-test',
+    'student-test',
+    initialDoc,
+    'admin-uid',
+    {
+      nombre: 'Valeria Sofía Paredes',
+      frase: 'Frase actualizada sin tocar paleta',
+      order: 4,
+      paletaOverride: undefined,
+      paleta: undefined,
+      paletaConfig: undefined
+    },
+    palettes
+  );
+  const step2Passed = arePaletaOverridesEqual(
+    parsePaletaOverride(afterMetadataUpdate.paletaOverride),
+    customOverride
+  );
+
+  // Paso 3: Limpieza explícita al volver a paleta general del colegio
+  const afterExplicitClear = buildNormalizedStudentPayload(
+    'album-test',
+    'student-test',
+    afterMetadataUpdate,
+    'admin-uid',
+    {
+      nombre: 'Valeria Sofía Paredes',
+      clearPaleta: true
+    },
+    palettes
+  );
+  const step3Passed =
+    afterExplicitClear.paletaOverride === undefined &&
+    afterExplicitClear.paleta === undefined &&
+    afterExplicitClear.paletaConfig === undefined;
+
+  const steps = [
+    {
+      name: 'Persistencia íntegra inicial de paletaOverride',
+      passed: step1Passed,
+      paletaOverride: initialDoc.paletaOverride ?? null
+    },
+    {
+      name: 'Preservación de paletaOverride ante actualización parcial de DraftStudent',
+      passed: step2Passed,
+      paletaOverride: afterMetadataUpdate.paletaOverride ?? null
+    },
+    {
+      name: 'Limpieza controlada solo cuando se solicita explícitamente',
+      passed: step3Passed,
+      paletaOverride: afterExplicitClear.paletaOverride ?? null
+    }
+  ];
+
+  return {
+    passed: steps.every((s) => s.passed),
+    steps
+  };
 }
 
 export async function batchImportStudents(
@@ -1395,14 +1877,13 @@ export async function batchImportStudents(
 
     const albumRef = doc(db, 'albums', albumId);
     const albumSnap = await getDoc(albumRef);
-    batch.set(
+    batchAlbumUpdateOrRepair(
+      batch,
       albumRef,
-      buildNormalizedAlbumPayload(
-        albumId,
-        albumSnap.exists() ? albumSnap.data() : undefined,
-        ownerUid,
-        { hasUnpublishedChanges: true }
-      )
+      albumId,
+      albumSnap.exists() ? albumSnap.data() : undefined,
+      ownerUid,
+      { hasUnpublishedChanges: true }
     );
 
     await batch.commit();
@@ -1426,9 +1907,10 @@ export async function syncAnuarioEntries(
 
   try {
     const albumRef = doc(db, 'albums', albumId);
-    const [albumSnap, currentStudentsSnap] = await Promise.all([
+    const [albumSnap, currentStudentsSnap, catalog] = await Promise.all([
       getDoc(albumRef),
-      getDocs(collection(db, 'albums', albumId, 'students'))
+      getDocs(collection(db, 'albums', albumId, 'students')),
+      fetchPalettesCatalogSafe()
     ]);
     const rawStudentDataMap = new Map(
       currentStudentsSnap.docs.map((d) => [d.id, d.data()])
@@ -1482,7 +1964,8 @@ export async function syncAnuarioEntries(
               tokenRevoked: Boolean(existing.tokenRevoked),
               status: existing.status || 'publicado',
               order: safeOrder
-            }
+            },
+            catalog
           )
         );
       } else {
@@ -1509,14 +1992,14 @@ export async function syncAnuarioEntries(
       }
     });
 
-    batch.set(
+    batchAlbumUpdateOrRepair(
+      batch,
       albumRef,
-      buildNormalizedAlbumPayload(
-        albumId,
-        albumSnap.exists() ? albumSnap.data() : undefined,
-        ownerUid,
-        { hasUnpublishedChanges: true }
-      )
+      albumId,
+      albumSnap.exists() ? albumSnap.data() : undefined,
+      ownerUid,
+      { hasUnpublishedChanges: true },
+      catalog
     );
 
     await batch.commit();
@@ -1538,14 +2021,13 @@ export async function deleteDraftStudent(
     if (isValidAccessToken(student.accessToken)) {
       batch.delete(doc(db, 'albumAccess', student.accessToken));
     }
-    batch.set(
+    batchAlbumUpdateOrRepair(
+      batch,
       albumRef,
-      buildNormalizedAlbumPayload(
-        albumId,
-        albumSnap.exists() ? albumSnap.data() : undefined,
-        getCurrentUidFallback(),
-        { hasUnpublishedChanges: true }
-      )
+      albumId,
+      albumSnap.exists() ? albumSnap.data() : undefined,
+      getCurrentUidFallback(),
+      { hasUnpublishedChanges: true }
     );
     await batch.commit();
   } catch (error) {
@@ -1566,7 +2048,10 @@ export async function setStudentTokenRevocation(
 
   try {
     const studentRef = doc(db, 'albums', album.id, 'students', student.id);
-    const studentSnap = await getDoc(studentRef);
+    const [studentSnap, catalog] = await Promise.all([
+      getDoc(studentRef),
+      fetchPalettesCatalogSafe()
+    ]);
     const batch = writeBatch(db);
     batch.set(
       studentRef,
@@ -1578,7 +2063,8 @@ export async function setStudentTokenRevocation(
         {
           accessToken: validToken,
           tokenRevoked: revoked
-        }
+        },
+        catalog
       )
     );
 
@@ -1611,7 +2097,10 @@ export async function regenerateStudentToken(
 
   try {
     const studentRef = doc(db, 'albums', album.id, 'students', targetStudent.id);
-    const studentSnap = await getDoc(studentRef);
+    const [studentSnap, catalog] = await Promise.all([
+      getDoc(studentRef),
+      fetchPalettesCatalogSafe()
+    ]);
     const batch = writeBatch(db);
     batch.set(
       studentRef,
@@ -1623,7 +2112,8 @@ export async function regenerateStudentToken(
         {
           accessToken: newToken,
           tokenRevoked: false
-        }
+        },
+        catalog
       )
     );
 
@@ -1644,20 +2134,12 @@ export async function regenerateStudentToken(
             }))
         : [];
 
-      const resolvedAlbumPaleta = resolveAlbumPalette(
-        album.paleta,
-        album.paletaConfig
+      const catalog = await fetchPalettesCatalogSafe();
+      const effectiveStudentPaleta = resolveStudentEffectivePalette(
+        album,
+        targetStudent,
+        catalog
       );
-      const hasStudentPalette = Boolean(
-        targetStudent.paleta || targetStudent.paletaConfig
-      );
-
-      const effectiveStudentPaleta = hasStudentPalette
-        ? resolveAlbumPalette(
-            targetStudent.paleta,
-            targetStudent.paletaConfig
-          )
-        : resolvedAlbumPaleta;
       const rawColegio = clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX);
       const rawPromocion = clampStr(
         album.promocion,
@@ -1746,17 +2228,16 @@ export async function regenerateGeneralAlbumToken(
     const albumRef = doc(db, 'albums', album.id);
     const albumSnap = await getDoc(albumRef);
     const batch = writeBatch(db);
-    batch.set(
+    batchAlbumUpdateOrRepair(
+      batch,
       albumRef,
-      buildNormalizedAlbumPayload(
-        album.id,
-        albumSnap.exists() ? albumSnap.data() : undefined,
-        publisherUid,
-        {
-          generalAccessToken: newToken,
-          generalTokenRevoked: false
-        }
-      )
+      album.id,
+      albumSnap.exists() ? albumSnap.data() : undefined,
+      publisherUid,
+      {
+        generalAccessToken: newToken,
+        generalTokenRevoked: false
+      }
     );
 
     if (isValidAccessToken(oldToken)) {
@@ -1776,9 +2257,11 @@ export async function regenerateGeneralAlbumToken(
               };
             })
         : [];
+      const catalog = await fetchPalettesCatalogSafe();
       const resolvedPaleta = resolveAlbumPalette(
         album.paleta,
-        album.paletaConfig
+        album.paletaConfig,
+        catalog
       );
       const rawColegio = clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX);
       const rawPromocion = clampStr(
@@ -1863,130 +2346,625 @@ export async function deleteDraftAlbum(albumId: string): Promise<void> {
   }
 }
 
+function inspectDraftAlbumPayloadAgainstRules(
+  albumId: string,
+  existingData: Record<string, unknown> | undefined,
+  outgoingFields: Record<string, unknown> | undefined
+): string {
+  if (!outgoingFields) return 'sin-payload';
+  const merged: Record<string, unknown> = {
+    ...(existingData || {}),
+    ...outgoingFields
+  };
+  const issues: string[] = [];
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(albumId)) issues.push('albumId');
+  const slug = merged.slug;
+  if (
+    typeof slug !== 'string' ||
+    slug.length < 3 ||
+    slug.length > 80 ||
+    !/^[a-z0-9-]+$/.test(slug)
+  ) {
+    issues.push(`slug(${String(slug)})`);
+  }
+  const colegio = merged.colegio;
+  if (typeof colegio !== 'string' || colegio.length < 2 || colegio.length > 140) {
+    issues.push(`colegio(len=${typeof colegio === 'string' ? colegio.length : 'no-str'})`);
+  }
+  const promocion = merged.promocion;
+  if (typeof promocion !== 'string' || promocion.length < 2 || promocion.length > 140) {
+    issues.push(`promocion(len=${typeof promocion === 'string' ? promocion.length : 'no-str'})`);
+  }
+  if (!['Inicial', 'Primaria', 'Secundaria'].includes(String(merged.nivel))) {
+    issues.push(`nivel(${String(merged.nivel)})`);
+  }
+  if (typeof merged.anio !== 'string' || !/^[0-9]{4}$/.test(merged.anio)) {
+    issues.push(`anio(${String(merged.anio)})`);
+  }
+  const paleta = merged.paleta;
+  if (
+    typeof paleta !== 'string' ||
+    paleta.length < 3 ||
+    paleta.length > 80 ||
+    !/^[a-z0-9-]+$/.test(paleta)
+  ) {
+    issues.push(`paleta(${String(paleta)})`);
+  }
+  if ('paletaConfig' in merged && !isCompletePaletteColors(merged.paletaConfig as PaletteColors)) {
+    issues.push('paletaConfig');
+  }
+  const urlFields = ['portadaUrl', 'musicaUrl', 'tutoraFotoUrl'];
+  for (const f of urlFields) {
+    if (f in merged && (typeof merged[f] !== 'string' || (merged[f] as string).length > 500)) {
+      issues.push(f);
+    }
+  }
+  if (Array.isArray(merged.fotos)) {
+    if (merged.fotos.length > 60) issues.push(`fotos.len=${merged.fotos.length}`);
+    if (merged.fotos.length > 0) {
+      const f0 = merged.fotos[0] as Record<string, unknown>;
+      const f0Keys = f0 && typeof f0 === 'object' ? Object.keys(f0) : [];
+      const f0Allowed = new Set(['titulo', 'categoria', 'url', 'descargaUrl']);
+      if (
+        !f0 ||
+        typeof f0 !== 'object' ||
+        !['titulo', 'categoria', 'url'].every((k) => k in f0) ||
+        f0Keys.some((k) => !f0Allowed.has(k)) ||
+        typeof f0.titulo !== 'string' ||
+        f0.titulo.length < 1 ||
+        f0.titulo.length > 140 ||
+        typeof f0.categoria !== 'string' ||
+        f0.categoria.length < 1 ||
+        f0.categoria.length > 40 ||
+        typeof f0.url !== 'string' ||
+        f0.url.length < 1 ||
+        f0.url.length > 500 ||
+        ('descargaUrl' in f0 && (typeof f0.descargaUrl !== 'string' || f0.descargaUrl.length > 500))
+      ) {
+        issues.push(`fotos[0](${f0Keys.join('|')})`);
+      }
+    }
+  } else if ('fotos' in merged) {
+    issues.push('fotos(no-list)');
+  }
+  if (Array.isArray(merged.videos)) {
+    if (merged.videos.length > 20) issues.push(`videos.len=${merged.videos.length}`);
+    if (merged.videos.length > 0) {
+      const v0 = merged.videos[0] as Record<string, unknown>;
+      const v0Keys = v0 && typeof v0 === 'object' ? Object.keys(v0) : [];
+      const v0Allowed = new Set(['titulo', 'duracion', 'descripcion', 'portadaUrl', 'embedUrl']);
+      if (
+        !v0 ||
+        typeof v0 !== 'object' ||
+        !['titulo', 'duracion', 'embedUrl'].every((k) => k in v0) ||
+        v0Keys.some((k) => !v0Allowed.has(k)) ||
+        typeof v0.titulo !== 'string' ||
+        v0.titulo.length < 1 ||
+        v0.titulo.length > 160 ||
+        typeof v0.duracion !== 'string' ||
+        v0.duracion.length < 1 ||
+        v0.duracion.length > 20 ||
+        typeof v0.embedUrl !== 'string' ||
+        v0.embedUrl.length < 1 ||
+        v0.embedUrl.length > 500
+      ) {
+        issues.push(`videos[0](${v0Keys.join('|')})`);
+      }
+    }
+  } else if ('videos' in merged) {
+    issues.push('videos(no-list)');
+  }
+  const gt = merged.generalAccessToken;
+  if ('generalAccessToken' in merged && (typeof gt !== 'string' || (gt !== '' && !/^[A-Za-z0-9_-]{32,64}$/.test(gt)))) {
+    issues.push('generalAccessToken');
+  }
+  return issues.length === 0 ? 'reglaLocal=OK' : `reglaLocal=FALLO(${issues.join(';')})`;
+}
+
+function inspectAlbumAccessPayloadAgainstRules(
+  token: string | undefined,
+  payload: Record<string, unknown> | undefined
+): string {
+  if (!payload) return 'sin-payload-access';
+  const issues: string[] = [];
+  if (!token || !/^[A-Za-z0-9_-]{32,64}$/.test(token)) {
+    issues.push(`token(${String(token)})`);
+  }
+  const required = [
+    'albumId',
+    'scope',
+    'albumStatus',
+    'studentStatus',
+    'revoked',
+    'colegio',
+    'promocion',
+    'nivel',
+    'anio',
+    'paleta',
+    'publishedBy',
+    'updatedAt'
+  ];
+  const allowed = new Set([
+    ...required,
+    'paletaConfig',
+    'portadaUrl',
+    'musicaUrl',
+    'tutoraTitulo',
+    'tutoraNombre',
+    'tutoraCargo',
+    'tutoraFotoUrl',
+    'tutoraTexto',
+    'fotos',
+    'videos',
+    'student',
+    'anuario'
+  ]);
+  for (const k of required) {
+    if (!(k in payload)) issues.push(`falta(${k})`);
+  }
+  for (const k of Object.keys(payload)) {
+    if (!allowed.has(k)) issues.push(`extra(${k})`);
+  }
+  if (
+    typeof payload.albumId !== 'string' ||
+    !/^[a-zA-Z0-9_-]{1,128}$/.test(payload.albumId)
+  ) {
+    issues.push(`albumId(${String(payload.albumId)})`);
+  }
+  if (!['student', 'album'].includes(String(payload.scope))) {
+    issues.push(`scope(${String(payload.scope)})`);
+  }
+  if (!['borrador', 'publicado'].includes(String(payload.albumStatus))) {
+    issues.push(`albumStatus(${String(payload.albumStatus)})`);
+  }
+  if (!['borrador', 'publicado'].includes(String(payload.studentStatus))) {
+    issues.push(`studentStatus(${String(payload.studentStatus)})`);
+  }
+  if (typeof payload.revoked !== 'boolean') {
+    issues.push('revoked(no-bool)');
+  }
+  if (
+    typeof payload.colegio !== 'string' ||
+    payload.colegio.length < 2 ||
+    payload.colegio.length > 140
+  ) {
+    issues.push(`colegio(${String(payload.colegio).length})`);
+  }
+  if (
+    typeof payload.promocion !== 'string' ||
+    payload.promocion.length < 2 ||
+    payload.promocion.length > 140
+  ) {
+    issues.push(`promocion(${String(payload.promocion).length})`);
+  }
+  if (!['Inicial', 'Primaria', 'Secundaria'].includes(String(payload.nivel))) {
+    issues.push(`nivel(${String(payload.nivel)})`);
+  }
+  if (typeof payload.anio !== 'string' || !/^[0-9]{4}$/.test(payload.anio)) {
+    issues.push(`anio(${String(payload.anio)})`);
+  }
+  if (
+    typeof payload.paleta !== 'string' ||
+    payload.paleta.length < 3 ||
+    payload.paleta.length > 80 ||
+    !/^[a-z0-9-]+$/.test(payload.paleta)
+  ) {
+    issues.push(`paleta(${String(payload.paleta)})`);
+  }
+  if (
+    'paletaConfig' in payload &&
+    !isCompletePaletteColors(payload.paletaConfig as PaletteColors)
+  ) {
+    issues.push('paletaConfig');
+  }
+  const maxLenMap: Array<[string, number]> = [
+    ['portadaUrl', 500],
+    ['musicaUrl', 500],
+    ['tutoraTitulo', 160],
+    ['tutoraNombre', 120],
+    ['tutoraCargo', 120],
+    ['tutoraFotoUrl', 500],
+    ['tutoraTexto', 4000]
+  ];
+  for (const [field, maxLen] of maxLenMap) {
+    if (
+      field in payload &&
+      (typeof payload[field] !== 'string' ||
+        (payload[field] as string).length > maxLen)
+    ) {
+      issues.push(field);
+    }
+  }
+  if ('fotos' in payload) {
+    if (!Array.isArray(payload.fotos) || payload.fotos.length > 60) {
+      issues.push('fotos');
+    } else if (payload.fotos.length > 0) {
+      const f0 = payload.fotos[0] as Record<string, unknown>;
+      const f0Allowed = new Set(['titulo', 'categoria', 'url', 'descargaUrl']);
+      if (
+        !f0 ||
+        typeof f0 !== 'object' ||
+        !['titulo', 'categoria', 'url'].every((k) => k in f0) ||
+        Object.keys(f0).some((k) => !f0Allowed.has(k)) ||
+        typeof f0.titulo !== 'string' ||
+        f0.titulo.length < 1 ||
+        f0.titulo.length > 140 ||
+        typeof f0.categoria !== 'string' ||
+        f0.categoria.length < 1 ||
+        f0.categoria.length > 40 ||
+        typeof f0.url !== 'string' ||
+        f0.url.length < 1 ||
+        f0.url.length > 500 ||
+        ('descargaUrl' in f0 &&
+          (typeof f0.descargaUrl !== 'string' || f0.descargaUrl.length > 500))
+      ) {
+        issues.push('fotos[0]');
+      }
+    }
+  }
+  if ('videos' in payload) {
+    if (!Array.isArray(payload.videos) || payload.videos.length > 20) {
+      issues.push('videos');
+    } else if (payload.videos.length > 0) {
+      const v0 = payload.videos[0] as Record<string, unknown>;
+      const v0Allowed = new Set([
+        'titulo',
+        'duracion',
+        'descripcion',
+        'portadaUrl',
+        'embedUrl'
+      ]);
+      if (
+        !v0 ||
+        typeof v0 !== 'object' ||
+        !['titulo', 'duracion', 'embedUrl'].every((k) => k in v0) ||
+        Object.keys(v0).some((k) => !v0Allowed.has(k)) ||
+        typeof v0.titulo !== 'string' ||
+        v0.titulo.length < 1 ||
+        v0.titulo.length > 160 ||
+        typeof v0.duracion !== 'string' ||
+        v0.duracion.length < 1 ||
+        v0.duracion.length > 20 ||
+        ('descripcion' in v0 &&
+          (typeof v0.descripcion !== 'string' || v0.descripcion.length > 400)) ||
+        ('portadaUrl' in v0 &&
+          (typeof v0.portadaUrl !== 'string' || v0.portadaUrl.length > 500)) ||
+        typeof v0.embedUrl !== 'string' ||
+        v0.embedUrl.length < 1 ||
+        v0.embedUrl.length > 500
+      ) {
+        issues.push('videos[0]');
+      }
+    }
+  }
+  const isValidCard = (card: unknown): boolean => {
+    if (!card || typeof card !== 'object') return false;
+    const c = card as Record<string, unknown>;
+    const allowedCard = new Set(['nombre', 'frase', 'fotoUrl']);
+    return (
+      'nombre' in c &&
+      Object.keys(c).every((k) => allowedCard.has(k)) &&
+      typeof c.nombre === 'string' &&
+      c.nombre.length >= 2 &&
+      c.nombre.length <= 120 &&
+      (!('frase' in c) || (typeof c.frase === 'string' && c.frase.length <= 400)) &&
+      (!('fotoUrl' in c) ||
+        (typeof c.fotoUrl === 'string' && c.fotoUrl.length <= 500))
+    );
+  };
+  if ('student' in payload && !isValidCard(payload.student)) {
+    issues.push('student');
+  }
+  if ('anuario' in payload) {
+    if (!Array.isArray(payload.anuario) || payload.anuario.length > 120) {
+      issues.push('anuario');
+    } else if (payload.anuario.length > 0 && !isValidCard(payload.anuario[0])) {
+      issues.push('anuario[0]');
+    }
+  }
+  if (
+    typeof payload.publishedBy !== 'string' ||
+    payload.publishedBy.length < 1 ||
+    payload.publishedBy.length > 128
+  ) {
+    issues.push('publishedBy');
+  }
+  return issues.length === 0
+    ? 'reglaAccessLocal=OK'
+    : `reglaAccessLocal=FALLO(${issues.join(';')})`;
+}
+
+function buildAlbumRuleDiagnosticSummary(
+  albumId: string,
+  step: string,
+  writeMode: string,
+  existingData: Record<string, unknown> | undefined,
+  outgoingFields: Record<string, unknown> | undefined,
+  accessTokenForDiag?: string
+): string {
+  if (!existingData && !step.startsWith('paso_3')) {
+    return `paso=${step}, modo=${writeMode}, existing=no-encontrado`;
+  }
+  const keys = existingData ? Object.keys(existingData) : [];
+  const unknownKeys = keys.filter((k) => !ALLOWED_DRAFT_ALBUM_KEYS.has(k));
+  const hasOwner =
+    Boolean(existingData) &&
+    typeof existingData?.ownerUid === 'string' &&
+    (existingData.ownerUid as string).length > 0;
+  const hasCreatedAtTs = Boolean(
+    existingData && isFirestoreTimestampLike(existingData.createdAt)
+  );
+  const localRuleCheck = step.startsWith('paso_3')
+    ? inspectAlbumAccessPayloadAgainstRules(accessTokenForDiag, outgoingFields)
+    : inspectDraftAlbumPayloadAgainstRules(albumId, existingData, outgoingFields);
+  const parts = [
+    `paso=${step}`,
+    `modo=${writeMode}`,
+    `ownerUid=${hasOwner ? String(existingData?.ownerUid) : 'falta'}`,
+    `createdAtTs=${hasCreatedAtTs ? 'si' : 'no'}`,
+    localRuleCheck
+  ];
+  if (unknownKeys.length > 0) {
+    parts.push(`clavesExtra=${unknownKeys.join('|')}`);
+  }
+  return parts.join(', ');
+}
+
+export interface PublishSnapshotResult {
+  albumDocSynced: boolean;
+  syncedAccessCount: number;
+  warning?: string;
+}
+
 export async function publishAlbumSnapshot(
   album: DraftAlbum,
   students: DraftStudent[],
   publisherUid: string,
   overrideStatus?: PublishStatus
-): Promise<void> {
+): Promise<PublishSnapshotResult> {
   const effectiveStatus: PublishStatus = overrideStatus ?? album.status;
-  const cleanSlug = slugify(album.slug, BLUEPRINT_LIMITS.ALBUM_SLUG_MIN);
   const path = `albums/${album.id}`;
-  const generalToken = isValidAccessToken(album.generalAccessToken)
-    ? album.generalAccessToken
-    : generateAccessToken();
-  const resolvedPaleta = resolveAlbumPalette(album.paleta, album.paletaConfig);
-  const rawColegio = clampStr(album.colegio, BLUEPRINT_LIMITS.COLEGIO_MAX);
-  const safeColegio = rawColegio.length >= 2 ? rawColegio : 'Colegio';
-  const rawPromocion = clampStr(album.promocion, BLUEPRINT_LIMITS.PROMOCION_MAX);
-  const safePromocion =
-    rawPromocion.length >= 2 ? rawPromocion : 'Promoción Escolar';
-  const safeNivel =
-    album.nivel === 'Inicial' ||
-    album.nivel === 'Primaria' ||
-    album.nivel === 'Secundaria'
-      ? album.nivel
-      : 'Primaria';
-  const safeAnio = BLUEPRINT_LIMITS.ANIO_REGEX.test(album.anio)
-    ? album.anio
-    : '2026';
-
-  const normalizePublicName = (name: string | undefined | null) => {
-    const clamped = clampStr(name, BLUEPRINT_LIMITS.STUDENT_NAME_MAX);
-    return clamped.length >= 2 ? clamped : 'Egresado';
-  };
-
   let currentPath = path;
+  let currentStep = 'paso_0_lectura_inicial';
+  let writeMode = 'ninguno';
+  let debugExistingAlbumData: Record<string, unknown> | undefined;
+  let debugOutgoingFields: Record<string, unknown> | undefined;
+  let debugAccessToken: string | undefined;
 
   try {
-    // 0. Leer documento actual para preservar ownerUid/createdAt válidos y limpiar cualquier campo heredado
-    const albumSnap = await getDoc(doc(db, 'albums', album.id));
+    const albumRef = doc(db, 'albums', album.id);
+    const [albumSnap, liveStudentsSnap, catalog] = await Promise.all([
+      getDocFromServer(albumRef).catch(() => getDoc(albumRef)),
+      getDocs(
+        query(
+          collection(db, 'albums', album.id, 'students'),
+          orderBy('order', 'asc')
+        )
+      ).catch(() => null),
+      fetchPalettesCatalogSafe()
+    ]);
+
     const existingAlbumData = albumSnap.exists() ? albumSnap.data() : undefined;
-    const safeOwnerUid = albumSnap.exists()
-      ? resolvePreservedOwnerUid(existingAlbumData, publisherUid)
-      : publisherUid;
-    const safeCreatedAt =
-      albumSnap.exists() && existingAlbumData?.createdAt instanceof Timestamp
-        ? existingAlbumData.createdAt
-        : serverTimestamp();
+    debugExistingAlbumData = existingAlbumData;
+    const rawStudentDataMap = new Map<string, Record<string, unknown>>();
+    const authoritativeStudents: DraftStudent[] =
+      liveStudentsSnap && !liveStudentsSnap.empty
+        ? liveStudentsSnap.docs.map((d) => {
+            const s = d.data();
+            rawStudentDataMap.set(d.id, s);
+            return {
+              id: d.id,
+              albumId: String(s.albumId || album.id),
+              slug: String(s.slug || d.id),
+              nombre: String(s.nombre || ''),
+              frase: String(s.frase || ''),
+              fotoUrl: String(s.fotoUrl || ''),
+              parentPhone: String(s.parentPhone || ''),
+              paleta:
+                typeof s.paleta === 'string' && s.paleta.trim().length >= 3
+                  ? s.paleta.trim()
+                  : undefined,
+              paletaConfig: parsePaletteConfig(s.paletaConfig),
+              paletaOverride: parsePaletaOverride(s.paletaOverride),
+              accessToken: String(s.accessToken || ''),
+              tokenRevoked: Boolean(s.tokenRevoked),
+              status: (s.status as PublishStatus) || 'publicado',
+              order: typeof s.order === 'number' ? s.order : 0,
+              ownerUid: String(s.ownerUid || ''),
+              createdAt: s.createdAt,
+              updatedAt: s.updatedAt
+            };
+          })
+        : students;
 
-    const preparedStudents = students.map((st) => ({
-      ...st,
-      safeStatus: (st.status === 'borrador'
-        ? 'borrador'
-        : 'publicado') as PublishStatus,
-      safeNombre: normalizePublicName(st.nombre),
-      safeToken: isValidAccessToken(st.accessToken)
+    const effectiveAlbum: DraftAlbum = existingAlbumData
+      ? {
+          ...album,
+          slug: String(existingAlbumData.slug || album.slug),
+          colegio: String(existingAlbumData.colegio || album.colegio),
+          promocion: String(existingAlbumData.promocion || album.promocion),
+          nivel:
+            existingAlbumData.nivel === 'Inicial' ||
+            existingAlbumData.nivel === 'Primaria' ||
+            existingAlbumData.nivel === 'Secundaria'
+              ? existingAlbumData.nivel
+              : album.nivel,
+          anio: String(existingAlbumData.anio || album.anio),
+          paleta:
+            typeof existingAlbumData.paleta === 'string'
+              ? existingAlbumData.paleta
+              : album.paleta,
+          paletaConfig:
+            parsePaletteConfig(existingAlbumData.paletaConfig) ??
+            album.paletaConfig,
+          portadaUrl: String(existingAlbumData.portadaUrl ?? album.portadaUrl),
+          musicaUrl: String(existingAlbumData.musicaUrl ?? album.musicaUrl),
+          whatsappTexto: String(
+            existingAlbumData.whatsappTexto ?? album.whatsappTexto
+          ),
+          tutoraTitulo: String(
+            existingAlbumData.tutoraTitulo ?? album.tutoraTitulo
+          ),
+          tutoraNombre: String(
+            existingAlbumData.tutoraNombre ?? album.tutoraNombre
+          ),
+          tutoraCargo: String(
+            existingAlbumData.tutoraCargo ?? album.tutoraCargo
+          ),
+          tutoraFotoUrl: String(
+            existingAlbumData.tutoraFotoUrl ?? album.tutoraFotoUrl
+          ),
+          tutoraTexto: String(
+            existingAlbumData.tutoraTexto ?? album.tutoraTexto
+          ),
+          fotos: Array.isArray(existingAlbumData.fotos)
+            ? existingAlbumData.fotos
+            : album.fotos,
+          videos: Array.isArray(existingAlbumData.videos)
+            ? existingAlbumData.videos
+            : album.videos,
+          allowGroupAnuario: Boolean(existingAlbumData.allowGroupAnuario),
+          generalShareEnabled: Boolean(existingAlbumData.generalShareEnabled),
+          generalAccessToken: String(
+            existingAlbumData.generalAccessToken || album.generalAccessToken || ''
+          ),
+          generalTokenRevoked: Boolean(existingAlbumData.generalTokenRevoked)
+        }
+      : album;
+
+    const resolvedPaleta = resolveAlbumPalette(
+      effectiveAlbum.paleta,
+      effectiveAlbum.paletaConfig,
+      catalog
+    );
+    const safeAlbumPaletaCode = slugify(
+      resolvedPaleta.codigo,
+      BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+    ).slice(0, BLUEPRINT_LIMITS.PALETTE_CODE_MAX);
+
+    const rawColegio = clampStr(
+      effectiveAlbum.colegio,
+      BLUEPRINT_LIMITS.COLEGIO_MAX
+    );
+    const safeColegio = rawColegio.length >= 2 ? rawColegio : 'Colegio';
+    const rawPromocion = clampStr(
+      effectiveAlbum.promocion,
+      BLUEPRINT_LIMITS.PROMOCION_MAX
+    );
+    const safePromocion =
+      rawPromocion.length >= 2 ? rawPromocion : 'Promoción Escolar';
+    const safeNivel =
+      effectiveAlbum.nivel === 'Inicial' ||
+      effectiveAlbum.nivel === 'Primaria' ||
+      effectiveAlbum.nivel === 'Secundaria'
+        ? effectiveAlbum.nivel
+        : 'Primaria';
+    const safeAnio = BLUEPRINT_LIMITS.ANIO_REGEX.test(effectiveAlbum.anio)
+      ? effectiveAlbum.anio
+      : '2026';
+
+    const normalizePublicName = (name: string | undefined | null) => {
+      const clamped = clampStr(name, BLUEPRINT_LIMITS.STUDENT_NAME_MAX);
+      return clamped.length >= 2 ? clamped : 'Egresado';
+    };
+
+    const usedStudentTokens = new Set<string>();
+    const preparedStudents = authoritativeStudents.map((st) => {
+      let safeToken = isValidAccessToken(st.accessToken)
         ? st.accessToken
-        : generateAccessToken()
-    }));
+        : generateAccessToken();
+      while (usedStudentTokens.has(safeToken)) {
+        safeToken = generateAccessToken();
+      }
+      usedStudentTokens.add(safeToken);
+      return {
+        ...st,
+        safeStatus: (st.status === 'borrador'
+          ? 'borrador'
+          : 'publicado') as PublishStatus,
+        safeNombre: normalizePublicName(st.nombre),
+        safeToken,
+        needsTokenUpdate: safeToken !== st.accessToken
+      };
+    });
 
-    const sanitizedFotos = album.fotos
+    let generalToken = isValidAccessToken(effectiveAlbum.generalAccessToken)
+      ? effectiveAlbum.generalAccessToken
+      : generateAccessToken();
+    while (usedStudentTokens.has(generalToken)) {
+      generalToken = generateAccessToken();
+    }
+
+    const sanitizedFotos = (Array.isArray(effectiveAlbum.fotos)
+      ? effectiveAlbum.fotos
+      : []
+    )
+      .filter((item): item is FotoItem => Boolean(item && typeof item === 'object'))
       .slice(0, BLUEPRINT_LIMITS.FOTOS_MAX)
       .map(sanitizeFotoItem);
-    const sanitizedVideos = album.videos
+    const sanitizedVideos = (Array.isArray(effectiveAlbum.videos)
+      ? effectiveAlbum.videos
+      : []
+    )
+      .filter((item): item is VideoItem => Boolean(item && typeof item === 'object'))
       .slice(0, BLUEPRINT_LIMITS.VIDEOS_MAX)
       .map(sanitizeVideoItem);
 
-    // 1. Guardar y normalizar el documento del álbum primero (cumple isValidDraftAlbum sin campos obsoletos)
-    currentPath = `albums/${album.id}`;
-    await setDoc(doc(db, 'albums', album.id), {
-      slug: cleanSlug,
-      colegio: safeColegio,
-      promocion: safePromocion,
-      nivel: safeNivel,
-      anio: safeAnio,
-      paleta: resolvedPaleta.codigo,
-      paletaConfig: resolvedPaleta.colors,
-      portadaUrl: clampStr(album.portadaUrl, BLUEPRINT_LIMITS.URL_MAX),
-      musicaUrl: clampStr(album.musicaUrl, BLUEPRINT_LIMITS.URL_MAX),
-      whatsappTexto: clampStr(
-        album.whatsappTexto,
-        BLUEPRINT_LIMITS.WHATSAPP_MAX
-      ),
-      tutoraTitulo: clampStr(
-        album.tutoraTitulo,
-        BLUEPRINT_LIMITS.TUTORA_TITULO_MAX
-      ),
-      tutoraNombre: clampStr(
-        album.tutoraNombre,
-        BLUEPRINT_LIMITS.TUTORA_NOMBRE_MAX
-      ),
-      tutoraCargo: clampStr(
-        album.tutoraCargo,
-        BLUEPRINT_LIMITS.TUTORA_CARGO_MAX
-      ),
-      tutoraFotoUrl: clampStr(album.tutoraFotoUrl, BLUEPRINT_LIMITS.URL_MAX),
-      tutoraTexto: clampStr(
-        album.tutoraTexto,
-        BLUEPRINT_LIMITS.TUTORA_TEXTO_MAX
-      ),
-      fotos: sanitizedFotos,
-      videos: sanitizedVideos,
-      allowGroupAnuario: Boolean(album.allowGroupAnuario),
-      generalShareEnabled: Boolean(album.generalShareEnabled),
-      generalAccessToken: generalToken,
-      generalTokenRevoked: Boolean(album.generalTokenRevoked),
-      status: effectiveStatus,
-      ownerUid: safeOwnerUid,
-      hasUnpublishedChanges: false,
-      createdAt: safeCreatedAt,
-      updatedAt: serverTimestamp()
-    });
+    // 1. Solo crear el documento padre /albums/{id} si NO existe todavía; si ya existe, no reescribir sus 24 campos antes de sincronizar /albumAccess
+    if (!existingAlbumData) {
+      currentStep = 'paso_1_album_borrador';
+      currentPath = `albums/${album.id}`;
+      const createPayload = buildNormalizedAlbumPayload(
+        album.id,
+        undefined,
+        publisherUid,
+        {
+          slug: effectiveAlbum.slug,
+          colegio: safeColegio,
+          promocion: safePromocion,
+          nivel: safeNivel,
+          anio: safeAnio,
+          paleta: safeAlbumPaletaCode,
+          paletaConfig: resolvedPaleta.colors,
+          portadaUrl: effectiveAlbum.portadaUrl,
+          musicaUrl: effectiveAlbum.musicaUrl,
+          whatsappTexto: effectiveAlbum.whatsappTexto,
+          tutoraTitulo: effectiveAlbum.tutoraTitulo,
+          tutoraNombre: effectiveAlbum.tutoraNombre,
+          tutoraCargo: effectiveAlbum.tutoraCargo,
+          tutoraFotoUrl: effectiveAlbum.tutoraFotoUrl,
+          tutoraTexto: effectiveAlbum.tutoraTexto,
+          fotos: sanitizedFotos,
+          videos: sanitizedVideos,
+          allowGroupAnuario: effectiveAlbum.allowGroupAnuario,
+          generalShareEnabled: effectiveAlbum.generalShareEnabled,
+          generalAccessToken: generalToken,
+          generalTokenRevoked: effectiveAlbum.generalTokenRevoked,
+          status: effectiveStatus,
+          hasUnpublishedChanges: true
+        },
+        catalog
+      );
+      writeMode = 'setDoc';
+      debugOutgoingFields = createPayload;
+      await setDoc(albumRef, createPayload);
+    }
 
-    // 2. Asegurar tokens válidos en alumnos que todavía no tengan uno
+    // 2. Asegurar tokens válidos en alumnos que todavía no tengan uno (lotes <= 5 para respetar límites de reglas Firestore)
+    const CHUNK_SIZE = 5;
     const studentsNeedingToken = preparedStudents.filter(
-      (st) => !isValidAccessToken(st.accessToken)
+      (st) => st.needsTokenUpdate
     );
-    const CHUNK_SIZE = 12;
     if (studentsNeedingToken.length > 0) {
+      currentStep = 'paso_2_tokens_alumnos';
       currentPath = `albums/${album.id}/students`;
-      const rawStudentsSnap = await getDocs(
-        collection(db, 'albums', album.id, 'students')
-      );
-      const rawStudentDataMap = new Map(
-        rawStudentsSnap.docs.map((d) => [d.id, d.data()])
-      );
+      writeMode = 'batch.set';
+      if (rawStudentDataMap.size === 0) {
+        const rawStudentsSnap = await getDocs(
+          collection(db, 'albums', album.id, 'students')
+        );
+        rawStudentsSnap.docs.forEach((d) => rawStudentDataMap.set(d.id, d.data()));
+      }
       for (let i = 0; i < studentsNeedingToken.length; i += CHUNK_SIZE) {
         const chunk = studentsNeedingToken.slice(i, i + CHUNK_SIZE);
         const stBatch = writeBatch(db);
@@ -2001,7 +2979,8 @@ export async function publishAlbumSnapshot(
               {
                 accessToken: st.safeToken,
                 tokenRevoked: Boolean(st.tokenRevoked)
-              }
+              },
+              catalog
             )
           );
         });
@@ -2009,13 +2988,22 @@ export async function publishAlbumSnapshot(
       }
     }
 
-    // 3. Preparar operaciones de /albumAccess en lotes <= 12 para respetar límites de reglas Firestore
+    // 3. Preparar operaciones de /albumAccess en lotes <= 5 para no exceder límites de exists()/get() en Firestore Rules
+    currentStep = 'paso_3a_leer_album_access';
     currentPath = 'albumAccess';
+    writeMode = 'getDocs';
     const existingTokensSnap = await getDocs(
       query(collection(db, 'albumAccess'), where('albumId', '==', album.id))
     );
+    const existingAccessScopeByToken = new Map<string, string>();
+    existingTokensSnap.docs.forEach((d) => {
+      const sc = d.data()?.scope;
+      if (typeof sc === 'string') {
+        existingAccessScopeByToken.set(d.id, sc);
+      }
+    });
 
-    const anuarioCards: PublicStudentCard[] = album.allowGroupAnuario
+    const anuarioCards: PublicStudentCard[] = effectiveAlbum.allowGroupAnuario
       ? preparedStudents
           .filter((s) => s.safeStatus === 'publicado' && !s.tokenRevoked)
           .slice(0, 120)
@@ -2033,25 +3021,28 @@ export async function publishAlbumSnapshot(
       promocion: safePromocion,
       nivel: safeNivel,
       anio: safeAnio,
-      paleta: resolvedPaleta.codigo,
+      paleta: safeAlbumPaletaCode,
       paletaConfig: resolvedPaleta.colors,
-      portadaUrl: clampStr(album.portadaUrl, BLUEPRINT_LIMITS.URL_MAX),
-      musicaUrl: clampStr(album.musicaUrl, BLUEPRINT_LIMITS.URL_MAX),
+      portadaUrl: clampStr(effectiveAlbum.portadaUrl, BLUEPRINT_LIMITS.URL_MAX),
+      musicaUrl: clampStr(effectiveAlbum.musicaUrl, BLUEPRINT_LIMITS.URL_MAX),
       tutoraTitulo: clampStr(
-        album.tutoraTitulo,
+        effectiveAlbum.tutoraTitulo,
         BLUEPRINT_LIMITS.TUTORA_TITULO_MAX
       ),
       tutoraNombre: clampStr(
-        album.tutoraNombre,
+        effectiveAlbum.tutoraNombre,
         BLUEPRINT_LIMITS.TUTORA_NOMBRE_MAX
       ),
       tutoraCargo: clampStr(
-        album.tutoraCargo,
+        effectiveAlbum.tutoraCargo,
         BLUEPRINT_LIMITS.TUTORA_CARGO_MAX
       ),
-      tutoraFotoUrl: clampStr(album.tutoraFotoUrl, BLUEPRINT_LIMITS.URL_MAX),
+      tutoraFotoUrl: clampStr(
+        effectiveAlbum.tutoraFotoUrl,
+        BLUEPRINT_LIMITS.URL_MAX
+      ),
       tutoraTexto: clampStr(
-        album.tutoraTexto,
+        effectiveAlbum.tutoraTexto,
         BLUEPRINT_LIMITS.TUTORA_TEXTO_MAX
       ),
       fotos: sanitizedFotos,
@@ -2064,24 +3055,29 @@ export async function publishAlbumSnapshot(
     const activeTokens = new Set<string>();
     const accessWrites: Array<{
       token: string;
+      needsRecreate: boolean;
       payload: Record<string, unknown>;
     }> = [];
 
     preparedStudents.forEach((st) => {
       if (effectiveStatus === 'publicado') {
-    const hasStudentPalette = Boolean(
-      st.paleta || st.paletaConfig
-    );
-
-    const studentPaleta = hasStudentPalette
-      ? resolveAlbumPalette(st.paleta, st.paletaConfig)
-      : resolvedPaleta;
+        const studentPaleta = resolveStudentEffectivePalette(
+          effectiveAlbum,
+          st,
+          catalog
+        );
+        const safeStudentPaletaCode = slugify(
+          studentPaleta.codigo,
+          BLUEPRINT_LIMITS.PALETTE_CODE_MIN
+        ).slice(0, BLUEPRINT_LIMITS.PALETTE_CODE_MAX);
         activeTokens.add(st.safeToken);
+        const prevScope = existingAccessScopeByToken.get(st.safeToken);
         accessWrites.push({
           token: st.safeToken,
+          needsRecreate: Boolean(prevScope && prevScope !== 'student'),
           payload: {
             ...basePayload,
-            paleta: studentPaleta.codigo,
+            paleta: safeStudentPaletaCode,
             paletaConfig: studentPaleta.colors,
             scope: 'student',
             studentStatus: st.safeStatus,
@@ -2096,21 +3092,44 @@ export async function publishAlbumSnapshot(
       }
     });
 
-    if (effectiveStatus === 'publicado' && album.generalShareEnabled) {
+    if (effectiveStatus === 'publicado' && effectiveAlbum.generalShareEnabled) {
       activeTokens.add(generalToken);
+      const prevScope = existingAccessScopeByToken.get(generalToken);
       accessWrites.push({
         token: generalToken,
+        needsRecreate: Boolean(prevScope && prevScope !== 'album'),
         payload: {
           ...basePayload,
           scope: 'album',
           studentStatus: 'publicado',
-          revoked: Boolean(album.generalTokenRevoked)
+          revoked: Boolean(effectiveAlbum.generalTokenRevoked)
         }
       });
     }
 
     for (let i = 0; i < accessWrites.length; i += CHUNK_SIZE) {
       const chunk = accessWrites.slice(i, i + CHUNK_SIZE);
+      const conflictItems = chunk.filter((item) => item.needsRecreate);
+      if (conflictItems.length > 0) {
+        currentStep = 'paso_3b_borrar_conflicto';
+        writeMode = 'batch.delete';
+        debugAccessToken = conflictItems[0]?.token;
+        const delConflictBatch = writeBatch(db);
+        conflictItems.forEach((item) => {
+          delConflictBatch.delete(doc(db, 'albumAccess', item.token));
+        });
+        await delConflictBatch.commit();
+      }
+      currentStep = 'paso_3c_escribir_album_access';
+      writeMode = 'batch.set';
+      const diagTarget =
+        chunk.find(
+          (item) =>
+            inspectAlbumAccessPayloadAgainstRules(item.token, item.payload) !==
+            'reglaAccessLocal=OK'
+        ) ?? chunk[0];
+      debugAccessToken = diagTarget?.token;
+      debugOutgoingFields = diagTarget?.payload;
       const accessBatch = writeBatch(db);
       chunk.forEach((item) => {
         accessBatch.set(doc(db, 'albumAccess', item.token), item.payload);
@@ -2119,6 +3138,8 @@ export async function publishAlbumSnapshot(
     }
 
     // 4. Eliminar tokens huérfanos, deshabilitados o cuando el álbum pasa a borrador
+    currentStep = 'paso_4_limpiar_huerfanos';
+    writeMode = 'batch.delete';
     const orphanRefs = existingTokensSnap.docs
       .filter((d) => !activeTokens.has(d.id))
       .map((d) => d.ref);
@@ -2128,8 +3149,244 @@ export async function publishAlbumSnapshot(
       chunk.forEach((ref) => delBatch.delete(ref));
       await delBatch.commit();
     }
+
+    // 5. Confirmar estado con delta mínimo en /albums/{id}; si falla tras haber sincronizado /albumAccess, devolver aviso claro sin perder la publicación
+    currentStep = 'paso_5_confirmar_publicacion';
+    currentPath = `albums/${album.id}`;
+    try {
+      const latestAlbumSnap = existingAlbumData
+        ? albumSnap
+        : await getDocFromServer(albumRef).catch(() => getDoc(albumRef));
+      const latestData = latestAlbumSnap.exists()
+        ? latestAlbumSnap.data()
+        : existingAlbumData;
+      const needsTokenSave =
+        !latestData || latestData.generalAccessToken !== generalToken;
+      const minimalDelta: Record<string, unknown> = {
+        status: effectiveStatus,
+        hasUnpublishedChanges: false,
+        updatedAt: serverTimestamp(),
+        ...(needsTokenSave ? { generalAccessToken: generalToken } : {})
+      };
+
+      if (canSafelyUpdateExistingAlbum(latestData)) {
+        writeMode = 'updateDoc-delta';
+        debugOutgoingFields = minimalDelta;
+        await updateDoc(albumRef, minimalDelta);
+      } else {
+        writeMode = 'setDoc';
+        debugOutgoingFields = buildNormalizedAlbumPayload(
+          album.id,
+          latestData,
+          publisherUid,
+          {
+            paleta: safeAlbumPaletaCode,
+            paletaConfig: resolvedPaleta.colors,
+            fotos: sanitizedFotos,
+            videos: sanitizedVideos,
+            generalAccessToken: generalToken,
+            status: effectiveStatus,
+            hasUnpublishedChanges: false
+          },
+          catalog
+        );
+        await writeAlbumUpdateOrRepair(
+          albumRef,
+          album.id,
+          latestData,
+          publisherUid,
+          {
+            paleta: safeAlbumPaletaCode,
+            paletaConfig: resolvedPaleta.colors,
+            fotos: sanitizedFotos,
+            videos: sanitizedVideos,
+            generalAccessToken: generalToken,
+            status: effectiveStatus,
+            hasUnpublishedChanges: false
+          },
+          catalog
+        );
+      }
+      return {
+        albumDocSynced: true,
+        syncedAccessCount: accessWrites.length
+      };
+    } catch (step5Error) {
+      const diag = buildAlbumRuleDiagnosticSummary(
+        album.id,
+        currentStep,
+        writeMode,
+        debugExistingAlbumData,
+        debugOutgoingFields
+      );
+      console.warn('[publishAlbumSnapshot] Enlaces sincronizados, fallo delta final:', {
+        diag,
+        step5Error
+      });
+      const step5Msg =
+        step5Error instanceof Error ? step5Error.message : String(step5Error);
+      if (step5Msg.toLowerCase().includes('permission')) {
+        return {
+          albumDocSynced: false,
+          syncedAccessCount: accessWrites.length,
+          warning: `Los enlaces privados (${accessWrites.length}) ya quedaron sincronizados en Firestore, pero el documento padre (${currentPath}) rechazó la actualización de estado [${diag}]. Usa "Clonar en documento limpio" para migrar a un borrador sin restricciones.`
+        };
+      }
+      throw step5Error;
+    }
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, currentPath);
+    const diag = buildAlbumRuleDiagnosticSummary(
+      album.id,
+      currentStep,
+      writeMode,
+      debugExistingAlbumData,
+      debugOutgoingFields,
+      debugAccessToken
+    );
+    console.error('[publishAlbumSnapshot] Error detallado:', {
+      step: currentStep,
+      writeMode,
+      path: currentPath,
+      albumId: album.id,
+      diag,
+      error
+    });
+    const baseMsg = error instanceof Error ? error.message : String(error);
+    const enrichedError = new Error(`${baseMsg} [${diag}]`);
+    handleFirestoreError(enrichedError, OperationType.WRITE, currentPath);
+  }
+}
+
+export async function cloneAndRepairAlbum(
+  sourceAlbum: DraftAlbum,
+  sourceStudents: DraftStudent[],
+  publisherUid: string
+): Promise<string> {
+  const baseSlug = slugify(
+    sourceAlbum.slug || sourceAlbum.colegio,
+    BLUEPRINT_LIMITS.ALBUM_SLUG_MIN
+  );
+  const uniqueSuffix = Math.random().toString(36).slice(2, 6);
+  const newAlbumId = `${baseSlug}-${uniqueSuffix}`.slice(
+    0,
+    BLUEPRINT_LIMITS.SLUG_MAX
+  );
+  let currentPath = `albums/${newAlbumId}`;
+
+  try {
+    const [catalog, liveStudentsSnap] = await Promise.all([
+      fetchPalettesCatalogSafe(),
+      getDocs(
+        query(
+          collection(db, 'albums', sourceAlbum.id, 'students'),
+          orderBy('order', 'asc')
+        )
+      ).catch(() => null)
+    ]);
+
+    const authoritativeStudents: DraftStudent[] =
+      liveStudentsSnap && !liveStudentsSnap.empty
+        ? liveStudentsSnap.docs.map((d) => {
+            const s = d.data();
+            return {
+              id: d.id,
+              albumId: sourceAlbum.id,
+              slug: String(s.slug || d.id),
+              nombre: String(s.nombre || ''),
+              frase: String(s.frase || ''),
+              fotoUrl: String(s.fotoUrl || ''),
+              parentPhone: String(s.parentPhone || ''),
+              paleta:
+                typeof s.paleta === 'string' && s.paleta.trim().length >= 3
+                  ? s.paleta.trim()
+                  : undefined,
+              paletaConfig: parsePaletteConfig(s.paletaConfig),
+              paletaOverride: parsePaletaOverride(s.paletaOverride),
+              accessToken: String(s.accessToken || ''),
+              tokenRevoked: Boolean(s.tokenRevoked),
+              status: (s.status as PublishStatus) || 'publicado',
+              order: typeof s.order === 'number' ? s.order : 0,
+              ownerUid: publisherUid
+            };
+          })
+        : sourceStudents;
+
+    const newAlbumPayload = buildNormalizedAlbumPayload(
+      newAlbumId,
+      undefined,
+      publisherUid,
+      {
+        slug: newAlbumId,
+        colegio: sourceAlbum.colegio,
+        promocion: sourceAlbum.promocion,
+        nivel: sourceAlbum.nivel,
+        anio: sourceAlbum.anio,
+        paleta: sourceAlbum.paleta,
+        paletaConfig: sourceAlbum.paletaConfig,
+        portadaUrl: sourceAlbum.portadaUrl,
+        musicaUrl: sourceAlbum.musicaUrl,
+        whatsappTexto: sourceAlbum.whatsappTexto,
+        tutoraTitulo: sourceAlbum.tutoraTitulo,
+        tutoraNombre: sourceAlbum.tutoraNombre,
+        tutoraCargo: sourceAlbum.tutoraCargo,
+        tutoraFotoUrl: sourceAlbum.tutoraFotoUrl,
+        tutoraTexto: sourceAlbum.tutoraTexto,
+        fotos: sourceAlbum.fotos,
+        videos: sourceAlbum.videos,
+        allowGroupAnuario: sourceAlbum.allowGroupAnuario,
+        generalShareEnabled: sourceAlbum.generalShareEnabled,
+        generalAccessToken: generateAccessToken(),
+        generalTokenRevoked: sourceAlbum.generalTokenRevoked,
+        status: 'borrador',
+        hasUnpublishedChanges: true
+      },
+      catalog
+    );
+
+    await setDoc(doc(db, 'albums', newAlbumId), newAlbumPayload);
+
+    currentPath = `albums/${newAlbumId}/students`;
+    const CHUNK_SIZE = 5;
+    for (let i = 0; i < authoritativeStudents.length; i += CHUNK_SIZE) {
+      const chunk = authoritativeStudents.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      chunk.forEach((st, idx) => {
+        const cleanStudentId = `${slugify(
+          st.slug || st.nombre,
+          BLUEPRINT_LIMITS.STUDENT_SLUG_MIN
+        )}-${Math.random().toString(36).slice(2, 5)}`.slice(0, 120);
+        const studentPayload = buildNormalizedStudentPayload(
+          newAlbumId,
+          cleanStudentId,
+          undefined,
+          publisherUid,
+          {
+            slug: st.slug,
+            nombre: st.nombre,
+            frase: st.frase,
+            fotoUrl: st.fotoUrl,
+            parentPhone: st.parentPhone,
+            paleta: st.paleta,
+            paletaConfig: st.paletaConfig,
+            paletaOverride: st.paletaOverride,
+            accessToken: generateAccessToken(),
+            tokenRevoked: Boolean(st.tokenRevoked),
+            status: st.status,
+            order: typeof st.order === 'number' ? st.order : i + idx
+          },
+          catalog
+        );
+        batch.set(
+          doc(db, 'albums', newAlbumId, 'students', cleanStudentId),
+          studentPayload
+        );
+      });
+      await batch.commit();
+    }
+
+    return newAlbumId;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, currentPath);
   }
 }
 
@@ -2204,8 +3461,12 @@ export async function fetchDraftPreviewForAdmin(
 ): Promise<{
   album: DraftAlbum;
   students: DraftStudent[];
+  palettes: ColorPalette[];
 } | null> {
-  const albumSnap = await getDoc(doc(db, 'albums', albumId));
+  const [albumSnap, palettes] = await Promise.all([
+    getDoc(doc(db, 'albums', albumId)),
+    fetchPalettesCatalogSafe()
+  ]);
   if (!albumSnap.exists()) return null;
   const data = albumSnap.data();
   const album: DraftAlbum = {
@@ -2257,6 +3518,7 @@ export async function fetchDraftPreviewForAdmin(
           ? s.paleta.trim()
           : undefined,
       paletaConfig: parsePaletteConfig(s.paletaConfig),
+      paletaOverride: parsePaletaOverride(s.paletaOverride),
       accessToken: String(s.accessToken || ''),
       tokenRevoked: Boolean(s.tokenRevoked),
       status: (s.status as PublishStatus) || 'publicado',
@@ -2265,5 +3527,5 @@ export async function fetchDraftPreviewForAdmin(
     };
   });
 
-  return { album, students };
+  return { album, students, palettes };
 }

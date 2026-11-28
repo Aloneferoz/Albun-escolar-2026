@@ -23,10 +23,12 @@ import {
   DEFAULT_PALETTES,
   DraftAlbum,
   DraftStudent,
+  hasStudentCustomPalette,
   isValidAccessToken,
   PaletteColors,
   PublishStatus,
   resolveAlbumPalette,
+  resolveStudentEffectivePalette,
   slugify
 } from '../../types/album';
 
@@ -44,6 +46,7 @@ interface AdminStudentsManagerProps {
       parentPhone: string;
       paleta?: string | null;
       paletaConfig?: PaletteColors;
+      paletaOverride?: string | PaletteColors | null;
       accessToken?: string;
       tokenRevoked?: boolean;
       status: PublishStatus;
@@ -143,7 +146,13 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
     setFrase(st.frase);
     setFotoUrl(st.fotoUrl);
     setParentPhone(st.parentPhone);
-    setStudentPaleta(st.paleta || '');
+    const hasCustom = hasStudentCustomPalette(st);
+    const effective = hasCustom
+      ? resolveStudentEffectivePalette(album, st, catalog)
+      : null;
+    setStudentPaleta(
+      effective && effective.isStudentCustom ? effective.codigo : ''
+    );
     setStatus(st.status);
     setOrder(st.order);
     setIsAddOpen(true);
@@ -167,6 +176,17 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
           ? editingStudent?.paletaConfig
           : undefined;
 
+      const effectiveEditingCode = editingStudent
+        ? resolveStudentEffectivePalette(album, editingStudent, catalog).codigo
+        : undefined;
+      const nextPaletaOverride = studentPaleta
+        ? editingStudent?.paletaOverride &&
+          typeof editingStudent.paletaOverride === 'object' &&
+          studentPaleta === effectiveEditingCode
+          ? editingStudent.paletaOverride
+          : customColors || studentPaleta
+        : null;
+
       await onUpsertStudent(editingStudent ? editingStudent.id : null, {
         nombre,
         slug: slugify(slug || nombre, BLUEPRINT_LIMITS.STUDENT_SLUG_MIN),
@@ -175,6 +195,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
         parentPhone,
         paleta: studentPaleta || null,
         paletaConfig: studentPaleta ? customColors : undefined,
+        paletaOverride: nextPaletaOverride,
         accessToken: editingStudent?.accessToken,
         tokenRevoked: editingStudent?.tokenRevoked ?? false,
         status,
@@ -212,6 +233,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
       parentPhone: current.parentPhone,
       paleta: current.paleta ?? null,
       paletaConfig: current.paletaConfig,
+      paletaOverride: current.paletaOverride ?? null,
       accessToken: current.accessToken,
       tokenRevoked: current.tokenRevoked,
       status: current.status,
@@ -225,6 +247,7 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
       parentPhone: swapWith.parentPhone,
       paleta: swapWith.paleta ?? null,
       paletaConfig: swapWith.paletaConfig,
+      paletaOverride: swapWith.paletaOverride ?? null,
       accessToken: swapWith.accessToken,
       tokenRevoked: swapWith.tokenRevoked,
       status: swapWith.status,
@@ -383,14 +406,15 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                                 ? `Tel. padre: ${st.parentPhone}`
                                 : 'Sin teléfono guardado'}
                             </div>
-                            {st.paleta ? (
+                            {hasStudentCustomPalette(st) ? (
                               <div className="inline-flex items-center gap-1.5 mt-1 px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-medium text-slate-700">
                                 {(() => {
-                                  const resolved = resolveAlbumPalette(
-                                    st.paleta,
-                                    st.paletaConfig,
-                                    catalog
-                                  );
+                                  const resolved =
+                                    resolveStudentEffectivePalette(
+                                      album,
+                                      st,
+                                      catalog
+                                    );
                                   return (
                                     <>
                                       <span className="inline-flex items-center gap-0.5">
@@ -411,7 +435,8 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                                       </span>
                                       <span className="truncate max-w-[160px]">
                                         Paleta:{' '}
-                                        {resolved.palette?.nombre || st.paleta}
+                                        {resolved.palette?.nombre ||
+                                          resolved.codigo}
                                       </span>
                                     </>
                                   );
@@ -771,14 +796,25 @@ export const AdminStudentsManager: React.FC<AdminStudentsManagerProps> = ({
                           {p.nombre} ({p.codigo})
                         </option>
                       ))}
+                    {studentPaleta &&
+                      !catalog.some((p) => p.codigo === studentPaleta) && (
+                        <option value={studentPaleta}>
+                          Paleta personalizada ({studentPaleta})
+                        </option>
+                      )}
                   </select>
                   {(() => {
                     const previewRes = studentPaleta
-                      ? resolveAlbumPalette(
-                          studentPaleta,
-                          editingStudent?.paleta === studentPaleta
-                            ? editingStudent.paletaConfig
-                            : undefined,
+                      ? resolveStudentEffectivePalette(
+                          album,
+                          {
+                            paleta: studentPaleta,
+                            paletaConfig:
+                              editingStudent?.paleta === studentPaleta
+                                ? editingStudent.paletaConfig
+                                : undefined,
+                            paletaOverride: editingStudent?.paletaOverride
+                          },
                           catalog
                         )
                       : albumResolvedPalette;

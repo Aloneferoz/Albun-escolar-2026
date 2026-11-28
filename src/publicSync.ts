@@ -9,6 +9,8 @@ import {
   FotoItem,
   isValidAccessToken,
   PaletteColors,
+  resolveAlbumPalette,
+  resolveStudentEffectivePalette,
   VideoItem
 } from './types/album';
 
@@ -180,26 +182,21 @@ export async function initPublicAlbumSync(): Promise<void> {
               ]
             : [];
 
-        const effectivePaleta = focusedStudent?.paleta
-          ? focusedStudent.paleta
-          : draft.album.paleta;
-        const hasStudentPalette = Boolean(
-          focusedStudent?.paleta || focusedStudent?.paletaConfig
-        );
-
-        const effectivePaletaConfig = hasStudentPalette
-          ? focusedStudent?.paletaConfig
-          : draft.album.paletaConfig;
         const activePreviewStudent =
           focusedStudent || (!draft.album.allowGroupAnuario ? draft.students[0] : null);
+        const effectivePalette = resolveStudentEffectivePalette(
+          draft.album,
+          activePreviewStudent,
+          draft.palettes
+        );
 
         bridge.applyAlbumData({
           colegio: draft.album.colegio,
           promocion: draft.album.promocion,
           nivel: draft.album.nivel,
           anio: draft.album.anio,
-          paleta: effectivePaleta,
-          paletaConfig: effectivePaletaConfig,
+          paleta: effectivePalette.codigo,
+          paletaConfig: effectivePalette.colors,
           portadaUrl: draft.album.portadaUrl,
           musicaUrl: draft.album.musicaUrl,
           mensajeTutora: {
@@ -254,13 +251,18 @@ export async function initPublicAlbumSync(): Promise<void> {
               ? [docData.student]
               : [];
 
+        const resolvedAccessPalette = resolveAlbumPalette(
+          docData.paleta,
+          docData.paletaConfig
+        );
+
         bridge.applyAlbumData({
           colegio: docData.colegio,
           promocion: docData.promocion,
           nivel: docData.nivel,
           anio: docData.anio,
-          paleta: docData.paleta,
-          paletaConfig: docData.paletaConfig,
+          paleta: resolvedAccessPalette.codigo,
+          paletaConfig: resolvedAccessPalette.colors,
           portadaUrl: docData.portadaUrl || '',
           musicaUrl: docData.musicaUrl || '',
           mensajeTutora: {

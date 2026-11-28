@@ -237,8 +237,18 @@ export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
   const handleSaveVideos = async () => {
     setSaving(true);
     try {
-      await onSaveAlbum({ videos });
-      showNotice('Videos de YouTube guardados en borrador.');
+      // Enviamos los videos Y forzamos a que el álbum se marque como publicado
+      // y que no haya cambios pendientes.
+      await onSaveAlbum({ 
+        videos: videos,
+        status: 'publicado',
+        hasUnpublishedChanges: false
+      });
+      
+      // Cambiamos el mensaje para que sea coherente con tu flujo
+      showNotice('Videos guardados y publicados directamente.');
+    } catch (error) {
+      console.error("Error al guardar los videos:", error);
     } finally {
       setSaving(false);
     }
@@ -276,14 +286,15 @@ export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
 
   const addVideo = () => {
     if (videos.length >= BLUEPRINT_LIMITS.VIDEOS_MAX) return;
+    
     setVideos((prev) => [
       ...prev,
       {
-        titulo: 'Video de ceremonia en YouTube',
+        titulo: 'Video de YouTube',
         duracion: '03:45',
-        descripcion: 'Resumen oficial desde nuestra cuenta de YouTube.',
-        portadaUrl: '/src/assets/images/foto_ceremonia_1795554404001.jpg',
-        embedUrl: 'https://youtu.be/5AM6ecA8zrk'
+        descripcion: '',
+        portadaUrl: '',
+        embedUrl: '' // <--- Vacío, para que tú pegues el enlace en la pantalla
       }
     ]);
   };
@@ -369,11 +380,18 @@ export const AdminAlbumEditor: React.FC<AdminAlbumEditorProps> = ({
           ))}
         </div>
 
-        {savedNotice && (
-          <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
-            {savedNotice}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {album.hasUnpublishedChanges && album.status === 'publicado' && (
+            <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
+              Cambios pendientes de publicar en enlaces públicos
+            </span>
+          )}
+          {savedNotice && (
+            <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg">
+              {savedNotice}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* 1. DATOS Y DISEÑO */}

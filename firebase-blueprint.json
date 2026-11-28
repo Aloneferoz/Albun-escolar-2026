@@ -198,6 +198,10 @@
           "type": "object",
           "description": "Paleta de 4 colores HEX asignada específicamente a esta alumna o alumno (si se omite, hereda la del álbum)."
         },
+        "paletaOverride": {
+          "type": "object",
+          "description": "Personalización individual persistida (mapa de 4 colores HEX o código de paleta) para sobrescribir la paleta general del álbum."
+        },
         "accessToken": {
           "type": "string",
           "minLength": 32,

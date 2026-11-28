@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Monitor, Smartphone, X, ExternalLink } from 'lucide-react';
-import { DraftStudent } from '../../types/album';
+import { DraftStudent, hasStudentCustomPalette } from '../../types/album';
 
 interface AdminPreviewModalProps {
   albumId: string;
@@ -54,7 +54,7 @@ export const AdminPreviewModal: React.FC<AdminPreviewModalProps> = ({
                 {students.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.nombre}
-                    {s.paleta ? ' ★' : ''}
+                    {hasStudentCustomPalette(s) ? ' ★' : ''}
                   </option>
                 ))}
               </select>
